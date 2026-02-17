@@ -110,36 +110,38 @@ impl ClaWasm {
             let mut response = provider.chat(&current_messages, &config).await?;
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             
-            // Loop: if AI calls a tool, execute it and send result back
+            // Loop: if AI calls tools, execute ALL of them and send results back
             let mut iterations = 0;
-            while iterations < 5 {  // Max 5 tool calls per message
+            while iterations < 10 {  // Max 10 iterations
                 iterations += 1;
                 
-                if let Some(tool_call) = Self::parse_tool_call(&response) {
-                    // Store tool call for verbose mode
+                let calls = Self::parse_all_tool_calls(&response);
+                if calls.is_empty() {
+                    // No tool calls, we have a final response
+                    break;
+                }
+                
+                // Execute ALL tool calls found
+                let mut tool_results = Vec::new();
+                for tool_call in calls {
                     tool_calls.push(tool_call.clone());
                     
-                    // Execute tool
                     let tool_result = match execute_tool(&tool_call.name, &tool_call.arguments).await {
                         Ok(result) => result,
                         Err(e) => format!("Error: {:?}", e),
                     };
                     
-                    // Add assistant's tool call to messages
-                    current_messages.push(Message::assistant(&response));
-                    
-                    // Add tool result as user message
-                    current_messages.push(Message::user(&format!(
-                        "Tool '{}' returned:\n{}",
-                        tool_call.name, tool_result
-                    )));
-                    
-                    // Get AI's response to tool result
-                    response = provider.chat(&current_messages, &config).await?;
-                } else {
-                    // No tool call, we have a final response
-                    break;
+                    tool_results.push(format!("Tool '{}' returned:\n{}", tool_call.name, tool_result));
                 }
+                
+                // Add assistant's response to messages
+                current_messages.push(Message::assistant(&response));
+                
+                // Add all tool results as one message
+                current_messages.push(Message::user(&tool_results.join("\n\n---\n\n")));
+                
+                // Get AI's response to tool results
+                response = provider.chat(&current_messages, &config).await?;
             }
             
             // Return result based on verbose mode
@@ -160,21 +162,24 @@ impl ClaWasm {
         future_to_promise(future)
     }
 
-    /// Parse tool call from response
-    fn parse_tool_call(response: &str) -> Option<ToolCall> {
-        // Look for ```tool ... ``` block
-        if let Some(start) = response.find("```tool") {
-            let rest = &response[start + 7..];
+    /// Parse ALL tool calls from response
+    fn parse_all_tool_calls(response: &str) -> Vec<ToolCall> {
+        let mut calls = Vec::new();
+        
+        // Find all ```tool ... ``` blocks
+        let mut search_start = 0;
+        while let Some(start) = response[search_start..].find("```tool") {
+            let rest = &response[search_start + start + 7..];
             if let Some(end_relative) = rest.find("```") {
                 let tool_json = rest[..end_relative].trim();
                 if let Ok(call) = serde_json::from_str::<ToolCall>(tool_json) {
-                    return Some(call);
+                    calls.push(call);
                 }
             }
+            search_start += start + 7;
         }
         
-        // Look for JSON with "name" and "arguments" or just "name" field
-        // Try to find complete JSON objects
+        // Find all JSON objects with "name" field
         let mut depth = 0;
         let mut start_idx = None;
         
@@ -191,22 +196,26 @@ impl ClaWasm {
                         let json_str = &response[start..i+1];
                         // Try to parse as ToolCall with arguments
                         if let Ok(call) = serde_json::from_str::<ToolCall>(json_str) {
-                            return Some(call);
-                        }
-                        // Try to parse as simple {"name": "...", "query": "..."} format
-                        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            // Avoid duplicates
+                            if !calls.iter().any(|c| c.name == call.name && c.arguments == call.arguments) {
+                                calls.push(call);
+                            }
+                        } else if let Ok(obj) = serde_json::from_str::<serde_json::Value>(json_str) {
                             if let Some(name) = obj.get("name").and_then(|n| n.as_str()) {
-                                // Build arguments from remaining fields
                                 let mut args = serde_json::Map::new();
                                 for (key, value) in obj.as_object().unwrap_or(&serde_json::Map::new()) {
                                     if key != "name" {
                                         args.insert(key.clone(), value.clone());
                                     }
                                 }
-                                return Some(ToolCall {
+                                let call = ToolCall {
                                     name: name.to_string(),
                                     arguments: serde_json::Value::Object(args),
-                                });
+                                };
+                                // Avoid duplicates
+                                if !calls.iter().any(|c| c.name == call.name && c.arguments == call.arguments) {
+                                    calls.push(call);
+                                }
                             }
                         }
                     }
@@ -215,7 +224,12 @@ impl ClaWasm {
             }
         }
         
-        None
+        calls
+    }
+
+    /// Parse single tool call (for backwards compatibility)
+    fn parse_tool_call(response: &str) -> Option<ToolCall> {
+        Self::parse_all_tool_calls(response).first().cloned()
     }
 
     /// Get available tools
