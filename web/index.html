@@ -649,21 +649,36 @@
                 const response = await webclaw.chatVerbose(message, verbose);
                 removeTypingIndicator();
                 
-                // If verbose mode, show tool calls separately
-                if (verbose && response.toolCalls && response.toolCalls.length > 0) {
-                    let toolInfo = '<div style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">';
-                    toolInfo += '<strong style="color: var(--accent);">🔧 Tool Calls:</strong><br>';
-                    for (const tool of response.toolCalls) {
-                        toolInfo += `<div style="margin: 5px 0; padding-left: 10px;">`;
-                        toolInfo += `<strong>${tool.name}</strong><br>`;
-                        toolInfo += `<code style="font-size: 11px; color: var(--text-secondary);">${JSON.stringify(tool.arguments).substring(0, 100)}...</code>`;
-                        toolInfo += `</div>`;
+                // Try to parse as JSON (verbose mode)
+                let responseText = response;
+                let toolCallsHtml = '';
+                
+                try {
+                    const parsed = JSON.parse(response);
+                    if (parsed.response && parsed.toolCalls) {
+                        responseText = parsed.response;
+                        if (verbose && parsed.toolCalls.length > 0) {
+                            toolCallsHtml = '<div style="margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border-left: 3px solid var(--accent);">';
+                            toolCallsHtml += '<strong style="color: var(--accent);">🔧 Tool Calls:</strong><br>';
+                            for (const tool of parsed.toolCalls) {
+                                toolCallsHtml += `<div style="margin: 8px 0; padding-left: 10px;">`;
+                                toolCallsHtml += `<strong style="color: var(--text-primary);">${tool.name}</strong>`;
+                                const argsStr = JSON.stringify(tool.arguments);
+                                if (argsStr.length > 150) {
+                                    toolCallsHtml += `<br><code style="font-size: 11px; color: var(--text-secondary);">${argsStr.substring(0, 150)}...</code>`;
+                                } else {
+                                    toolCallsHtml += `<br><code style="font-size: 11px; color: var(--text-secondary);">${argsStr}</code>`;
+                                }
+                                toolCallsHtml += `</div>`;
+                            }
+                            toolCallsHtml += '</div>';
+                        }
                     }
-                    toolInfo += '</div>';
-                    addMessage('assistant', toolInfo + response.response);
-                } else {
-                    addMessage('assistant', response.response || response);
+                } catch (e) {
+                    // Not JSON, use as-is
                 }
+                
+                addMessage('assistant', toolCallsHtml + responseText);
                 updateStatus('Ready', false);
             } catch (error) {
                 removeTypingIndicator();

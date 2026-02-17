@@ -861,50 +861,83 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
         .map(|imgs| serde_json::to_string(imgs).unwrap_or_else(|_| "[]".to_string()))
         .unwrap_or_else(|| "[]".to_string());
     
-    // Use jsPDF to create real PDF with images
+    // Use jsPDF with better formatting and proxy for images
     let js_code = format!(r#"
         (async function() {{
             const {{ jsPDF }} = window.jspdf;
-            const doc = new jsPDF();
+            const doc = new jsPDF({{
+                putOnlyUsedFonts: true
+            }});
             
-            // Add title
-            doc.setFontSize(20);
-            doc.setTextColor(51, 51, 51);
-            doc.text({}, 20, 20);
-            
-            // Add content
-            doc.setFontSize(12);
-            doc.setTextColor(0, 0, 0);
-            const lines = doc.splitTextToSize({}, 170);
-            let y = 35;
-            for (const line of lines) {{
-                if (y > 280) {{
-                    doc.addPage();
-                    y = 20;
-                }}
+            // Add title with better formatting
+            doc.setFontSize(24);
+            doc.setTextColor(30, 30, 30);
+            const titleLines = doc.splitTextToSize({}, 170);
+            let y = 25;
+            for (const line of titleLines) {{
                 doc.text(line, 20, y);
-                y += 7;
+                y += 10;
             }}
             
-            // Add images
+            // Add separator line
+            y += 5;
+            doc.setDrawColor(200, 200, 200);
+            doc.line(20, y, 190, y);
+            y += 15;
+            
+            // Add content with better formatting
+            doc.setFontSize(11);
+            doc.setTextColor(40, 40, 40);
+            
+            // Split content into paragraphs
+            const paragraphs = {}.split('\\n\\n');
+            for (const para of paragraphs) {{
+                const lines = doc.splitTextToSize(para, 170);
+                for (const line of lines) {{
+                    if (y > 270) {{
+                        doc.addPage();
+                        y = 25;
+                    }}
+                    doc.text(line, 20, y);
+                    y += 6;
+                }}
+                y += 4; // Paragraph spacing
+            }}
+            
+            // Add images via proxy to avoid CORS
             const images = {};
             for (const img of images) {{
                 try {{
-                    // Add new page for each image
                     doc.addPage();
-                    y = 20;
+                    y = 25;
                     
-                    // Load image
-                    const imgData = img.url;
+                    let imgUrl = img.url;
+                    
+                    // If it's a Wikipedia URL, try to get direct image
+                    if (imgUrl.includes('wikipedia.org') || imgUrl.includes('wikimedia.org')) {{
+                        // Use proxy for Wikipedia images
+                        imgUrl = 'http://localhost:3000/proxy';
+                    }}
+                    
                     const width = img.width || 170;
-                    const height = img.height || 0;
+                    const height = img.height || 120;
                     
-                    // Add image to PDF
-                    if (imgData.startsWith('data:') || imgData.startsWith('http')) {{
-                        // For URLs, we need to load them first
-                        if (imgData.startsWith('http')) {{
-                            try {{
-                                const response = await fetch(imgData);
+                    if (imgUrl.startsWith('http')) {{
+                        try {{
+                            // Fetch via proxy
+                            const proxyBody = JSON.stringify({{
+                                url: img.url,
+                                method: 'GET',
+                                headers: {{}}
+                            }});
+                            
+                            const response = await fetch('http://localhost:3000/proxy', {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                body: proxyBody
+                            }});
+                            
+                            if (response.ok) {{
                                 const blob = await response.blob();
                                 const reader = new FileReader();
                                 const base64 = await new Promise((resolve, reject) => {{
@@ -912,41 +945,50 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
                                     reader.onerror = reject;
                                     reader.readAsDataURL(blob);
                                 }});
-                                doc.addImage(base64, 'JPEG', 20, y, width, height || 'auto');
-                            }} catch (e) {{
-                                doc.text('[Image could not be loaded: ' + img.url + ']', 20, y);
+                                doc.addImage(base64, 'JPEG', 20, y, width, height);
+                            }} else {{
+                                doc.setFontSize(10);
+                                doc.setTextColor(150, 150, 150);
+                                doc.text('[Image unavailable: ' + img.url.substring(0, 50) + '...]', 20, y);
                             }}
-                        }} else {{
-                            doc.addImage(imgData, 'JPEG', 20, y, width, height || 'auto');
-                        }}
-                        
-                        // Add caption if provided
-                        if (img.caption) {{
-                            const capY = y + (height || 100) + 10;
+                        }} catch (e) {{
                             doc.setFontSize(10);
-                            doc.setTextColor(102, 102, 102);
-                            doc.text(img.caption, 20, capY > 280 ? 20 : capY);
+                            doc.setTextColor(150, 150, 150);
+                            doc.text('[Could not load image]', 20, y);
                         }}
+                    }} else if (imgUrl.startsWith('data:')) {{
+                        doc.addImage(imgUrl, 'JPEG', 20, y, width, height);
+                    }}
+                    
+                    // Add caption
+                    if (img.caption) {{
+                        const capY = y + height + 10;
+                        doc.setFontSize(9);
+                        doc.setTextColor(100, 100, 100);
+                        doc.text(img.caption, 20, capY);
                     }}
                 }} catch (e) {{
                     console.error('Image error:', e);
                 }}
             }}
             
-            // Add footer on last page
-            doc.setFontSize(10);
-            doc.setTextColor(102, 102, 102);
-            doc.text('Generated by WebClaw on {}', 20, 290);
+            // Add footer
+            const pageCount = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {{
+                doc.setPage(i);
+                doc.setFontSize(8);
+                doc.setTextColor(150, 150, 150);
+                doc.text('Generated by WebClaw | Page ' + i + '/' + pageCount, 20, 285);
+            }}
             
             // Save
             doc.save('{}.pdf');
-            return 'PDF created successfully with ' + images.length + ' images';
+            return 'PDF created with ' + pageCount + ' pages';
         }})()
     "#, 
         serde_json::to_string(title).unwrap(),
         serde_json::to_string(content).unwrap(),
         images_json,
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
         filename
     );
     
@@ -957,8 +999,8 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
     let result_str = result.as_string().unwrap_or_else(|| "PDF created".to_string());
     
     Ok(format!(
-        "PDF '{}' created and downloaded!\nFile ID: {}\n\n{}",
-        title, file_id, result_str
+        "✅ PDF '{}' oluşturuldu!\n📄 Dosya: {}.pdf\n{}\n\n💡 PDF dosyası indirildi.",
+        title, filename, result_str
     ))
 }
 
