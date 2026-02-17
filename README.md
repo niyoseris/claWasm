@@ -28,6 +28,18 @@ A WebAssembly AI assistant that can create its own tools, conduct research, and 
 
 ## 🚀 Quick Start
 
+### One-Command Start
+
+```bash
+git clone https://github.com/niyoseris/webclaw.git
+cd webclaw
+./start.sh
+```
+
+Open http://localhost:5001 in your browser.
+
+### Manual Build
+
 ### Prerequisites
 
 ```bash
