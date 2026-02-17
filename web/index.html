@@ -522,51 +522,6 @@
                 <span id="temperatureValue">0.7</span>
             </div>
 
-            <hr style="border-color: var(--border); margin: 20px 0;">
-
-            <h3 style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">📊 Channel Integrations</h3>
-
-            <div class="form-group">
-                <label class="form-label">📱 Telegram Bot Token</label>
-                <input type="password" class="form-input" id="telegramTokenInput" placeholder="123456789:ABCdef...">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">📱 Telegram Username</label>
-                <input type="text" class="form-input" id="telegramUsernameInput" placeholder="username (without @)">
-                <small style="color: var(--text-secondary); font-size: 12px;">Bot must have started a conversation with this user</small>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">💬 Discord Bot Token</label>
-                <input type="password" class="form-input" id="discordTokenInput" placeholder="Bot token...">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">💬 Discord Channel ID</label>
-                <input type="text" class="form-input" id="discordChannelInput" placeholder="123456789012345678">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">💼 Slack Bot Token</label>
-                <input type="password" class="form-input" id="slackTokenInput" placeholder="xoxb-...">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">💼 Slack Channel</label>
-                <input type="text" class="form-input" id="slackChannelInput" placeholder="#general">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">📱 WhatsApp Access Token</label>
-                <input type="password" class="form-input" id="whatsappTokenInput" placeholder="Meta WhatsApp token...">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">📱 WhatsApp Phone Number ID</label>
-                <input type="text" class="form-input" id="whatsappPhoneIdInput" placeholder="123456789">
-            </div>
-
             <button class="btn btn-primary" id="saveSettingsBtn" style="width: 100%;">Save Settings</button>
         </div>
     </div>
@@ -691,16 +646,6 @@
                 document.getElementById('baseUrlInput').value = settings.baseUrl || '';
                 document.getElementById('temperatureInput').value = settings.temperature || 0.7;
                 
-                // Channel settings
-                document.getElementById('telegramTokenInput').value = settings.telegramToken || '';
-                document.getElementById('telegramUsernameInput').value = settings.telegramUsername || '';
-                document.getElementById('discordTokenInput').value = settings.discordToken || '';
-                document.getElementById('discordChannelInput').value = settings.discordChannel || '';
-                document.getElementById('slackTokenInput').value = settings.slackToken || '';
-                document.getElementById('slackChannelInput').value = settings.slackChannel || '';
-                document.getElementById('whatsappTokenInput').value = settings.whatsappToken || '';
-                document.getElementById('whatsappPhoneIdInput').value = settings.whatsappPhoneId || '';
-                
                 if (settings.provider === 'custom') {
                     document.getElementById('baseUrlGroup').style.display = 'block';
                 }
@@ -714,16 +659,7 @@
                 apiKey: document.getElementById('apiKeyInput').value,
                 model: document.getElementById('modelInput').value,
                 baseUrl: document.getElementById('baseUrlInput').value,
-                temperature: parseFloat(document.getElementById('temperatureInput').value),
-                // Channel settings
-                telegramToken: document.getElementById('telegramTokenInput').value,
-                telegramUsername: document.getElementById('telegramUsernameInput').value,
-                discordToken: document.getElementById('discordTokenInput').value,
-                discordChannel: document.getElementById('discordChannelInput').value,
-                slackToken: document.getElementById('slackTokenInput').value,
-                slackChannel: document.getElementById('slackChannelInput').value,
-                whatsappToken: document.getElementById('whatsappTokenInput').value,
-                whatsappPhoneId: document.getElementById('whatsappPhoneIdInput').value
+                temperature: parseFloat(document.getElementById('temperatureInput').value)
             };
             
             localStorage.setItem('webclaw_settings', JSON.stringify(settings));

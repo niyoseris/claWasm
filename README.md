@@ -24,9 +24,6 @@ A WebAssembly AI assistant that can create its own tools, conduct research, and 
 - **`create_pdf`**: Generate PDFs with embedded images
 - **`web_search`**: DuckDuckGo search via proxy
 - **`fetch_url`**: Extract content from any URL
-
-### Communication
-- **`send_message`**: Telegram, Discord, Slack, WhatsApp integration
 - **`save_note` / `read_notes`**: Persistent note-taking
 
 ## 🚀 Quick Start
@@ -78,7 +75,6 @@ Open http://localhost:5001 in your browser.
 | `create_pdf` | Generate PDFs with images |
 | `download_file` | Download generated files |
 | `save_note` / `read_notes` | Note management |
-| `send_message` | Telegram, Discord, Slack, WhatsApp |
 | `create_tool` | Create custom JavaScript tools |
 | `list_custom_tools` | List custom tools |
 | `delete_tool` | Delete custom tools |

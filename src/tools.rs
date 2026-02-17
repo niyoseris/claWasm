@@ -191,25 +191,6 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["file_id"]
             }),
         },
-        ToolDefinition {
-            name: "send_message".to_string(),
-            description: "Send a message to a configured channel (Telegram, Discord, Slack, or WhatsApp). Use this to share information with users on their preferred platform.".to_string(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "channel": {
-                        "type": "string",
-                        "enum": ["telegram", "discord", "slack", "whatsapp"],
-                        "description": "The channel to send the message to"
-                    },
-                    "message": {
-                        "type": "string",
-                        "description": "The message content to send"
-                    }
-                },
-                "required": ["channel", "message"]
-            }),
-        },
         // Self-evolving tools
         ToolDefinition {
             name: "create_tool".to_string(),
@@ -311,7 +292,6 @@ pub async fn execute_tool(name: &str, args: &serde_json::Value) -> Result<String
         "read_notes" => execute_read_notes(args).await,
         "create_pdf" => execute_create_pdf(args).await,
         "download_file" => execute_download_file(args).await,
-        "send_message" => execute_send_message(args).await,
         // Self-evolving tools
         "create_tool" => execute_create_tool(args).await,
         "list_custom_tools" => execute_list_custom_tools(args).await,
@@ -472,9 +452,17 @@ fn parse_ddg_images(json: &str, limit: usize) -> Vec<ImageResult> {
             return results.iter()
                 .take(limit)
                 .filter_map(|r| {
+                    let url = r["image"].as_str()
+                        .or_else(|| r["thumbnail"].as_str())
+                        .unwrap_or("");
+                    
+                    if url.is_empty() {
+                        return None;
+                    }
+                    
                     Some(ImageResult {
                         title: r["title"].as_str().unwrap_or("Image").to_string(),
-                        url: r["image"].as_str().or_else(|| r["thumbnail"]).unwrap_or("").to_string(),
+                        url: url.to_string(),
                         source: r["url"].as_str().unwrap_or("").to_string(),
                     })
                 })
@@ -1042,126 +1030,6 @@ async fn execute_download_file(args: &serde_json::Value) -> Result<String, JsVal
         "✅ Download started: {}\n\nNote: This is an HTML file that can be opened in browser and printed as PDF.\nTo save as PDF: Open the file → Print → Save as PDF",
         pdf_data.filename
     ))
-}
-
-/// Send message to configured channel (Telegram, Discord, Slack, WhatsApp)
-async fn execute_send_message(args: &serde_json::Value) -> Result<String, JsValue> {
-    let channel = args["channel"].as_str()
-        .ok_or_else(|| JsValue::from_str("Missing 'channel' parameter"))?;
-    let message = args["message"].as_str()
-        .ok_or_else(|| JsValue::from_str("Missing 'message' parameter"))?;
-    
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
-    let storage = window.local_storage()?.ok_or_else(|| JsValue::from_str("No localStorage"))?;
-    
-    // Get channel settings from localStorage
-    let settings_json = storage.get_item("webclaw_settings")?
-        .ok_or_else(|| JsValue::from_str("No settings found. Please configure channels in Settings."))?;
-    
-    let settings: serde_json::Value = serde_json::from_str(&settings_json)
-        .map_err(|e| JsValue::from_str(&format!("Settings parse error: {}", e)))?;
-    
-    let url = "http://localhost:3000";
-    
-    match channel {
-        "telegram" => {
-            let bot_token = settings["telegramToken"].as_str()
-                .ok_or_else(|| JsValue::from_str("Telegram bot token not configured. Go to Settings to add it."))?;
-            let username = settings["telegramUsername"].as_str()
-                .ok_or_else(|| JsValue::from_str("Telegram username not configured. Go to Settings to add it."))?;
-            
-            let body = serde_json::json!({
-                "config": {
-                    "bot_token": bot_token,
-                    "username": username
-                },
-                "message": {
-                    "chat_id": "",  // Will be resolved from username
-                    "text": message
-                }
-            });
-            
-            send_channel_request(&format!("{}/channel/telegram/send", url), &body).await
-        }
-        "discord" => {
-            let bot_token = settings["discordToken"].as_str()
-                .ok_or_else(|| JsValue::from_str("Discord bot token not configured. Go to Settings to add it."))?;
-            let channel_id = settings["discordChannel"].as_str()
-                .ok_or_else(|| JsValue::from_str("Discord channel ID not configured. Go to Settings to add it."))?;
-            
-            let body = serde_json::json!({
-                "config": {
-                    "bot_token": bot_token,
-                    "channel_id": channel_id
-                },
-                "message": {
-                    "content": message
-                }
-            });
-            
-            send_channel_request(&format!("{}/channel/discord/send", url), &body).await
-        }
-        "slack" => {
-            let bot_token = settings["slackToken"].as_str()
-                .ok_or_else(|| JsValue::from_str("Slack bot token not configured. Go to Settings to add it."))?;
-            let channel_name = settings["slackChannel"].as_str()
-                .ok_or_else(|| JsValue::from_str("Slack channel not configured. Go to Settings to add it."))?;
-            
-            let body = serde_json::json!({
-                "config": {
-                    "bot_token": bot_token,
-                    "channel": channel_name
-                },
-                "message": {
-                    "channel": channel_name,
-                    "text": message
-                }
-            });
-            
-            send_channel_request(&format!("{}/channel/slack/send", url), &body).await
-        }
-        "whatsapp" => {
-            let access_token = settings["whatsappToken"].as_str()
-                .ok_or_else(|| JsValue::from_str("WhatsApp access token not configured. Go to Settings to add it."))?;
-            let phone_id = settings["whatsappPhoneId"].as_str()
-                .ok_or_else(|| JsValue::from_str("WhatsApp phone number ID not configured. Go to Settings to add it."))?;
-            
-            // WhatsApp needs a "to" number - we'll need to store that too or ask
-            return Err(JsValue::from_str("WhatsApp requires recipient phone number. Use the proxy endpoint directly with 'to' parameter."));
-        }
-        _ => Err(JsValue::from_str(&format!("Unknown channel: {}", channel)))
-    }
-}
-
-/// Helper function to send channel request
-async fn send_channel_request(url: &str, body: &serde_json::Value) -> Result<String, JsValue> {
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
-    
-    let headers = Headers::new()?;
-    headers.set("Content-Type", "application/json")?;
-    
-    let request_init = RequestInit::new();
-    request_init.set_method("POST");
-    request_init.set_headers(headers.as_ref());
-    let body_json = JsValue::from_str(&serde_json::to_string(body).unwrap());
-    request_init.set_body(&body_json);
-    
-    let request = Request::new_with_str_and_init(url, &request_init)?;
-    
-    let response = JsFuture::from(window.fetch_with_request(&request)).await?;
-    let response: Response = response.dyn_into()?;
-    
-    if !response.ok() {
-        return Err(JsValue::from_str(&format!(
-            "Channel send failed: {}. Make sure proxy server is running (cargo run --bin proxy --features proxy)",
-            response.status()
-        )));
-    }
-    
-    let text = JsFuture::from(response.text()?).await?;
-    let text = text.as_string().unwrap_or_default();
-    
-    Ok(format!("✅ Message sent successfully!\nResponse: {}", text))
 }
 
 // URL encoding module

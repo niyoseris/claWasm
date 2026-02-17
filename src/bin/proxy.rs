@@ -1,6 +1,6 @@
 //! Simple CORS Proxy Server for WebClaw
 //! 
-//! Usage: cargo run --bin proxy
+//! Usage: cargo run --bin proxy --features proxy
 //! 
 //! This proxy bypasses CORS restrictions by acting as a middleman
 //! between the browser and external APIs.
@@ -10,10 +10,6 @@ use actix_cors::Cors;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-// Channel support is compiled into proxy binary
-#[path = "../channels_mod.rs"]
-mod channels_mod;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ProxyRequest {
@@ -324,7 +320,6 @@ async fn main() -> std::io::Result<()> {
             .route("/search", web::get().to(web_search_handler))
             .route("/ollama-search", web::post().to(ollama_search_handler))
             .route("/reddit/search", web::get().to(reddit_search_handler))
-            .configure(channels_mod::register_channels)
     })
     .bind("127.0.0.1:3000")?
     .run()
