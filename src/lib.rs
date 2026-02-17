@@ -93,6 +93,12 @@ impl WebClaw {
     /// Send a message and get a response (returns Promise)
     #[wasm_bindgen]
     pub fn chat(&mut self, message: &str) -> Promise {
+        self.chat_verbose(message, false)
+    }
+
+    /// Send a message and get a response with optional verbose mode
+    #[wasm_bindgen(js_name = "chatVerbose")]
+    pub fn chat_verbose(&mut self, message: &str, verbose: bool) -> Promise {
         // Add user message to chat
         self.chat.add_user(message);
         let messages = self.chat.messages.clone();
@@ -102,6 +108,7 @@ impl WebClaw {
         let future = async move {
             let mut current_messages = messages;
             let mut response = provider.chat(&current_messages, &config).await?;
+            let mut tool_calls: Vec<ToolCall> = Vec::new();
             
             // Loop: if AI calls a tool, execute it and send result back
             let mut iterations = 0;
@@ -109,6 +116,9 @@ impl WebClaw {
                 iterations += 1;
                 
                 if let Some(tool_call) = Self::parse_tool_call(&response) {
+                    // Store tool call for verbose mode
+                    tool_calls.push(tool_call.clone());
+                    
                     // Execute tool
                     let tool_result = match execute_tool(&tool_call.name, &tool_call.arguments).await {
                         Ok(result) => result,
@@ -132,7 +142,19 @@ impl WebClaw {
                 }
             }
             
-            Ok(JsValue::from_str(&response))
+            // Return result based on verbose mode
+            if verbose && !tool_calls.is_empty() {
+                let result = serde_json::json!({
+                    "response": response,
+                    "toolCalls": tool_calls.iter().map(|t| serde_json::json!({
+                        "name": t.name,
+                        "arguments": t.arguments
+                    })).collect::<Vec<_>>()
+                });
+                Ok(JsValue::from_str(&serde_json::to_string(&result).unwrap()))
+            } else {
+                Ok(JsValue::from_str(&response))
+            }
         };
         
         future_to_promise(future)

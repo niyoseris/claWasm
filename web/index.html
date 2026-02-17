@@ -522,6 +522,26 @@
                 <span id="temperatureValue">0.7</span>
             </div>
 
+            <hr style="border-color: var(--border); margin: 20px 0;">
+
+            <h3 style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">⚙️ Response Options</h3>
+
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="streamInput" style="width: 18px; height: 18px;">
+                    <span class="form-label" style="margin: 0;">Stream Mode (Real-time response)</span>
+                </label>
+                <small style="color: var(--text-secondary); font-size: 12px; margin-left: 28px;">Show response as it's generated</small>
+            </div>
+
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="verboseInput" style="width: 18px; height: 18px;">
+                    <span class="form-label" style="margin: 0;">Verbose Mode (Show tool calls)</span>
+                </label>
+                <small style="color: var(--text-secondary); font-size: 12px; margin-left: 28px;">Display tool usage and results</small>
+            </div>
+
             <button class="btn btn-primary" id="saveSettingsBtn" style="width: 100%;">Save Settings</button>
         </div>
     </div>
@@ -613,6 +633,10 @@
             
             if (!message || isLoading) return;
             
+            // Get settings for verbose mode
+            const settings = JSON.parse(localStorage.getItem('webclaw_settings') || '{}');
+            const verbose = settings.verbose || false;
+            
             input.value = '';
             input.style.height = 'auto';
             
@@ -622,9 +646,24 @@
             addTypingIndicator();
             
             try {
-                const response = await webclaw.chat(message);
+                const response = await webclaw.chatVerbose(message, verbose);
                 removeTypingIndicator();
-                addMessage('assistant', response);
+                
+                // If verbose mode, show tool calls separately
+                if (verbose && response.toolCalls && response.toolCalls.length > 0) {
+                    let toolInfo = '<div style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">';
+                    toolInfo += '<strong style="color: var(--accent);">🔧 Tool Calls:</strong><br>';
+                    for (const tool of response.toolCalls) {
+                        toolInfo += `<div style="margin: 5px 0; padding-left: 10px;">`;
+                        toolInfo += `<strong>${tool.name}</strong><br>`;
+                        toolInfo += `<code style="font-size: 11px; color: var(--text-secondary);">${JSON.stringify(tool.arguments).substring(0, 100)}...</code>`;
+                        toolInfo += `</div>`;
+                    }
+                    toolInfo += '</div>';
+                    addMessage('assistant', toolInfo + response.response);
+                } else {
+                    addMessage('assistant', response.response || response);
+                }
                 updateStatus('Ready', false);
             } catch (error) {
                 removeTypingIndicator();
@@ -645,6 +684,8 @@
                 document.getElementById('modelInput').value = settings.model || 'gpt-4o-mini';
                 document.getElementById('baseUrlInput').value = settings.baseUrl || '';
                 document.getElementById('temperatureInput').value = settings.temperature || 0.7;
+                document.getElementById('streamInput').checked = settings.stream || false;
+                document.getElementById('verboseInput').checked = settings.verbose || false;
                 
                 if (settings.provider === 'custom') {
                     document.getElementById('baseUrlGroup').style.display = 'block';
@@ -659,7 +700,9 @@
                 apiKey: document.getElementById('apiKeyInput').value,
                 model: document.getElementById('modelInput').value,
                 baseUrl: document.getElementById('baseUrlInput').value,
-                temperature: parseFloat(document.getElementById('temperatureInput').value)
+                temperature: parseFloat(document.getElementById('temperatureInput').value),
+                stream: document.getElementById('streamInput').checked,
+                verbose: document.getElementById('verboseInput').checked
             };
             
             localStorage.setItem('webclaw_settings', JSON.stringify(settings));
