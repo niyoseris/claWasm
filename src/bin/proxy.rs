@@ -42,6 +42,12 @@ async fn proxy_handler(
     
     let mut request = client.request(method, &req.url);
     
+    // Add default User-Agent if not provided (required by Wikimedia)
+    let has_ua = req.headers.keys().any(|k| k.to_lowercase() == "user-agent");
+    if !has_ua {
+        request = request.header("User-Agent", "claWasm/0.1.0 (https://github.com/niyoseris/claWasm)");
+    }
+    
     // Add headers
     for (key, value) in &req.headers {
         request = request.header(key, value);
@@ -56,7 +62,15 @@ async fn proxy_handler(
         Ok(response) => {
             let status = response.status();
             let headers = response.headers().clone();
-            let body = response.text().await.unwrap_or_default();
+            
+            // Check if response is binary (image, etc.)
+            let content_type = headers.get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            
+            let is_binary = content_type.starts_with("image/") 
+                || content_type.starts_with("application/octet-stream")
+                || content_type.contains("pdf");
             
             let mut builder = HttpResponse::build(
                 actix_web::http::StatusCode::from_u16(status.as_u16())
@@ -81,7 +95,15 @@ async fn proxy_handler(
                 }
             }
             
-            builder.body(body)
+            if is_binary {
+                // Handle binary data
+                let bytes = response.bytes().await.unwrap_or_default();
+                builder.body(bytes)
+            } else {
+                // Handle text data
+                let body = response.text().await.unwrap_or_default();
+                builder.body(body)
+            }
         }
         Err(e) => {
             HttpResponse::InternalServerError()

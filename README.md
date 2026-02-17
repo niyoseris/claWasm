@@ -2,7 +2,7 @@
 
 **claWasm** - A self-evolving AI assistant that runs 100% in your browser via WebAssembly.
 
-Inspired by [ZeroClaw](https://github.com/zero-claw) and [OpenClaw](https://github.com/open-claw), claWasm brings browser-native AI with the ability to create its own tools on-the-fly, conduct research, and generate PDFs with images - all while keeping your data private in the browser.
+Inspired by [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) and [OpenClaw](https://openclaw.ai/), claWasm brings browser-native AI with the ability to create its own tools on-the-fly, conduct research, and generate PDFs with images - all while keeping your data private in the browser.
 
 ## ✨ Features
 
