@@ -1,11 +1,11 @@
 [package]
-name = "webclaw"
+name = "clawasm"
 version = "0.1.0"
 edition = "2021"
-authors = ["WebClaw Team"]
+authors = ["claWasm Team"]
 license = "MIT"
-description = "WebAssembly AI Assistant - ZeroClaw inspired browser-native AI"
-repository = "https://github.com/webclaw/webclaw"
+description = "claWasm - WebAssembly AI Assistant inspired by ZeroClaw and OpenClaw"
+repository = "https://github.com/niyoseris/clawasm"
 keywords = ["ai", "assistant", "wasm", "browser", "chatbot"]
 categories = ["wasm", "web-programming"]
 

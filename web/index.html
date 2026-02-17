@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebClaw - Browser AI Assistant</title>
-    <!-- jsPDF for PDF generation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <title>claWasm - Browser AI Assistant</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>">
     <style>
         :root {
             --bg-primary: #0f0f0f;
@@ -548,7 +547,7 @@
 
     <script type="module">
         // Import the WASM module
-        import init, { WebClaw } from './pkg/webclaw.js';
+        import init, { WebClaw } from './pkg/clawasm.js';
 
         let webclaw = null;
         let isLoading = false;
@@ -558,7 +557,7 @@
             try {
                 await init();
                 webclaw = new WebClaw();
-                console.log('WebClaw initialized');
+                console.log('claWasm initialized');
                 updateStatus('Ready', false);
                 loadSettings();
             } catch (error) {

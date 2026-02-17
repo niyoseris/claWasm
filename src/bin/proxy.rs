@@ -1,4 +1,4 @@
-//! Simple CORS Proxy Server for WebClaw
+//! claWasm CORS Proxy Server
 //! 
 //! Usage: cargo run --bin proxy --features proxy
 //! 
@@ -287,41 +287,30 @@ struct RedditPostFormatted {
 async fn index() -> HttpResponse {
     HttpResponse::Ok()
         .content_type("text/html")
-        .body(r#"
-<!DOCTYPE html>
+        .body(r#"<!DOCTYPE html>
 <html>
-<head><title>WebClaw Proxy</title></head>
+<head><title>claWasm Proxy</title></head>
 <body>
-    <h1>WebClaw CORS Proxy</h1>
+    <h1>claWasm CORS Proxy</h1>
     <p>Proxy is running!</p>
     <h2>Endpoints:</h2>
     <ul>
         <li>POST /proxy - Generic proxy (JSON body: {"url": "...", "method": "GET", "headers": {}, "body": null})</li>
         <li>GET /search?q=query - DuckDuckGo search</li>
         <li>POST /ollama-search - Ollama Web Search API (JSON body: {"query": "...", "max_results": 5})</li>
-    </ul>
-    <h2>Channel Support:</h2>
-    <ul>
-        <li>POST /channel/telegram/send - Send Telegram message</li>
-        <li>POST /channel/telegram/webhook - Telegram webhook</li>
-        <li>POST /channel/discord/send - Send Discord message</li>
-        <li>POST /channel/slack/send - Send Slack message</li>
-        <li>POST /channel/slack/webhook - Slack webhook</li>
-        <li>POST /channel/whatsapp/send - Send WhatsApp message</li>
-        <li>GET/POST /channel/whatsapp/webhook - WhatsApp webhook</li>
+        <li>GET /reddit/search?q=query - Reddit search</li>
     </ul>
 </body>
-</html>
-"#)
+</html>"#)
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!("🚀 WebClaw CORS Proxy starting on http://localhost:3000");
+    println!("🚀 claWasm CORS Proxy starting on http://localhost:3000");
     println!("   POST /proxy - Generic proxy endpoint");
     println!("   GET /search?q=query - DuckDuckGo search");
     println!("   POST /ollama-search - Ollama Web Search API");
-    println!("   Channel endpoints: /channel/{{telegram,discord,slack,whatsapp}}/*");
+    println!("   GET /reddit/search?q=query - Reddit search");
     
     HttpServer::new(|| {
         let cors = Cors::default()

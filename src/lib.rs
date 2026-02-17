@@ -1,6 +1,6 @@
-//! WebClaw - WebAssembly AI Assistant
+//! claWasm - WebAssembly AI Assistant
 //! 
-//! A browser-native AI assistant inspired by ZeroClaw.
+//! A browser-native AI assistant inspired by ZeroClaw and OpenClaw.
 //! Runs entirely in the browser with no server dependencies.
 
 use wasm_bindgen::prelude::*;
@@ -67,7 +67,7 @@ impl WebClaw {
             .collect();
         
         format!(
-            "You are WebClaw, a helpful AI assistant running entirely in the browser. \
+            "You are claWasm, a helpful AI assistant running entirely in the browser. \
             You are fast, private, and ready to help with any task.\n\n\
             You have access to the following tools:\n{}\n\n\
             To use a tool, respond with a JSON object in this format:\n\

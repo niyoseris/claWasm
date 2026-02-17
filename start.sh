@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# WebClaw Quick Start Script
+# claWasm Quick Start Script
 # Usage: ./start.sh
 
 set -e
 
-echo "🦀 WebClaw Starting..."
+echo "🦀 claWasm Starting..."
 echo ""
 
 # Check if Rust is installed
@@ -33,7 +33,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 # Generate JS bindings
 echo "🔗 Generating JavaScript bindings..."
-wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/webclaw.wasm
+wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/clawasm.wasm
 
 # Build proxy (if features available)
 echo "🚀 Building proxy server..."
@@ -55,7 +55,7 @@ fi
 echo "🌐 Starting web server on http://localhost:5001..."
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  WebClaw is running!"
+echo "  claWasm is running!"
 echo ""
 echo "  📱 Open: http://localhost:5001"
 echo "  🔧 Proxy: http://localhost:3000"
