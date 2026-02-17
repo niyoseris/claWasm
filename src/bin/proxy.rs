@@ -83,6 +83,15 @@ async fn proxy_handler(
     }
 }
 
+/// Handle CORS preflight requests
+async fn proxy_options() -> HttpResponse {
+    HttpResponse::Ok()
+        .insert_header(("Access-Control-Allow-Origin", "*"))
+        .insert_header(("Access-Control-Allow-Methods", "POST, OPTIONS"))
+        .insert_header(("Access-Control-Allow-Headers", "Content-Type"))
+        .finish()
+}
+
 async fn web_search_handler(
     query: web::Query<HashMap<String, String>>,
 ) -> HttpResponse {
@@ -317,6 +326,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .route("/", web::get().to(index))
             .route("/proxy", web::post().to(proxy_handler))
+            .route("/proxy", web::method(actix_web::http::Method::OPTIONS).to(proxy_options))
             .route("/search", web::get().to(web_search_handler))
             .route("/ollama-search", web::post().to(ollama_search_handler))
             .route("/reddit/search", web::get().to(reddit_search_handler))
