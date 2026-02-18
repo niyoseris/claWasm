@@ -33,7 +33,7 @@ urlencoding = "2.1"
 # Proxy server dependencies (native only)
 actix-web = { version = "4", optional = true }
 actix-cors = { version = "0.7", optional = true }
-reqwest = { version = "0.12", features = ["json"], optional = true }
+reqwest = { version = "0.12", features = ["json", "native-tls"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 
 [features]

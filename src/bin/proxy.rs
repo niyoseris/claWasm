@@ -42,6 +42,7 @@ async fn proxy_handler(
     eprintln!("→ Proxy: {} {}", req.method, req.url);
     
     let client = Client::builder()
+        .use_native_tls()
         .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_secs(120))
         .build()
@@ -107,10 +108,10 @@ async fn proxy_handler(
             }
         }
         Err(e) => {
-            eprintln!("❌ Proxy error for {}: {}", req.url, e);
+            eprintln!("❌ Proxy error for {}: {:#}", req.url, e);
             HttpResponse::InternalServerError()
                 .insert_header(("Access-Control-Allow-Origin", "*"))
-                .body(format!("Proxy error: {}", e))
+                .body(format!("Proxy error: {:#}", e))
         }
     }
 }
