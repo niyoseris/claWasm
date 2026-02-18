@@ -1705,7 +1705,7 @@ async fn execute_scan_headers(args: &serde_json::Value) -> Result<String, JsValu
     let response_headers = response.headers();
     
     for (header_name, display_name, points) in &security_headers {
-        if response_headers.has(header_name) {
+        if response_headers.has(header_name).unwrap_or(false) {
             findings.push(format!("✅ {}: Present", display_name));
             score += points;
         } else {
@@ -1714,10 +1714,10 @@ async fn execute_scan_headers(args: &serde_json::Value) -> Result<String, JsValu
     }
     
     // Check for insecure headers
-    if response_headers.has("server") {
+    if response_headers.has("server").unwrap_or(false) {
         findings.push("⚠️ Server header exposed - Consider removing or obscuring".to_string());
     }
-    if response_headers.has("x-powered-by") {
+    if response_headers.has("x-powered-by").unwrap_or(false) {
         findings.push("⚠️ X-Powered-By header exposed - Remove this header".to_string());
     }
     
@@ -1762,7 +1762,7 @@ async fn execute_scan_ssl(args: &serde_json::Value) -> Result<String, JsValue> {
     
     // Check HSTS header
     let response_headers = response.headers();
-    if response_headers.has("strict-transport-security") {
+    if response_headers.has("strict-transport-security").unwrap_or(false) {
         findings.push("✅ HSTS: Enabled".to_string());
     } else {
         findings.push("❌ HSTS: Not enabled".to_string());
@@ -1972,7 +1972,7 @@ async fn execute_scan_cors(args: &serde_json::Value) -> Result<String, JsValue> 
         if let Some(acao) = response_headers.get("Access-Control-Allow-Origin").ok().flatten() {
             if acao == "*" {
                 findings.push(format!("🔴 CORS allows any origin (*) from test origin: {}", origin));
-            } else if acao == origin || acao == "null" {
+            } else if acao == *origin || acao == "null" {
                 findings.push(format!("🔴 CORS reflects origin: {} -> {}", origin, acao));
             } else {
                 findings.push(format!("✅ CORS restricted to: {}", acao));
@@ -1980,7 +1980,7 @@ async fn execute_scan_cors(args: &serde_json::Value) -> Result<String, JsValue> 
         }
         
         // Check credentials
-        if response_headers.has("Access-Control-Allow-Credentials") {
+        if response_headers.has("Access-Control-Allow-Credentials").unwrap_or(false) {
             findings.push("⚠️ CORS allows credentials - ensure origin is properly restricted".to_string());
         }
     }
