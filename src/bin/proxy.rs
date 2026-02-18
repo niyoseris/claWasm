@@ -75,7 +75,49 @@ async fn proxy_handler(
         request = request.body(body.clone());
     }
     
-    match request.send().await {
+    // Helper closure to build and send request
+    let send_request = |client: &Client| {
+        let mut r = client.request(
+            match req.method.to_uppercase().as_str() {
+                "GET" => reqwest::Method::GET,
+                "POST" => reqwest::Method::POST,
+                "PUT" => reqwest::Method::PUT,
+                "DELETE" => reqwest::Method::DELETE,
+                "PATCH" => reqwest::Method::PATCH,
+                _ => reqwest::Method::GET,
+            },
+            &req.url,
+        );
+        let has_ua = req.headers.keys().any(|k| k.to_lowercase() == "user-agent");
+        if !has_ua {
+            r = r.header("User-Agent", "claWasm/0.1.0 (https://github.com/niyoseris/claWasm)");
+        }
+        for (key, value) in &req.headers {
+            r = r.header(key, value);
+        }
+        if let Some(body) = &req.body {
+            r = r.body(body.clone());
+        }
+        r.send()
+    };
+
+    let result = match request.send().await {
+        Ok(r) => Ok(r),
+        Err(e) => {
+            eprintln!("⚠️  Proxy first attempt failed: {}. Retrying...", e);
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let retry_client = Client::builder()
+                .use_native_tls()
+                .danger_accept_invalid_certs(true)
+                .timeout(std::time::Duration::from_secs(120))
+                .connection_verbose(true)
+                .build()
+                .unwrap();
+            send_request(&retry_client).await
+        }
+    };
+
+    match result {
         Ok(response) => {
             let status = response.status();
             let headers = response.headers().clone();
