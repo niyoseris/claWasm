@@ -179,16 +179,39 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "download_file".to_string(),
-            description: "Trigger download of a previously created file (like PDF). Returns download status.".to_string(),
+            description: "Trigger download of a previously created file (PDF or Audio). Returns download status.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "file_id": {
                         "type": "string",
-                        "description": "The file ID returned from create_pdf or similar"
+                        "description": "The file ID returned from create_pdf or text_to_speech"
                     }
                 },
                 "required": ["file_id"]
+            }),
+        },
+        ToolDefinition {
+            name: "list_files".to_string(),
+            description: "List all previously created files (PDFs, audio files) that can be downloaded. Use this to see available files and their IDs.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        ToolDefinition {
+            name: "get_conversation".to_string(),
+            description: "Get the current conversation history as text. Use this when the user asks to create a PDF or summary of the current discussion - you can use the conversation content directly instead of doing new research.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "Output format: 'text' (plain text), 'markdown' (formatted), or 'summary' (brief summary)"
+                    }
+                },
+                "required": []
             }),
         },
         // Self-evolving tools
@@ -451,6 +474,8 @@ pub async fn execute_tool(name: &str, args: &serde_json::Value) -> Result<String
         "read_notes" => execute_read_notes(args).await,
         "create_pdf" => execute_create_pdf(args).await,
         "download_file" => execute_download_file(args).await,
+        "list_files" => execute_list_files(args).await,
+        "get_conversation" => execute_get_conversation(args).await,
         // Self-evolving tools
         "create_tool" => execute_create_tool(args).await,
         "list_custom_tools" => execute_list_custom_tools(args).await,
@@ -1208,7 +1233,16 @@ struct PdfFile {
     created_at: String,
 }
 
-/// Download a previously created file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AudioFile {
+    id: String,
+    text: String,
+    lang: String,
+    filename: String,
+    created_at: String,
+}
+
+/// Download a previously created file (PDF or Audio)
 async fn execute_download_file(args: &serde_json::Value) -> Result<String, JsValue> {
     let file_id = args["file_id"].as_str()
         .ok_or_else(|| JsValue::from_str("Missing 'file_id' parameter"))?;
@@ -1217,57 +1251,234 @@ async fn execute_download_file(args: &serde_json::Value) -> Result<String, JsVal
     let document = window.document().ok_or_else(|| JsValue::from_str("No document"))?;
     let storage = window.local_storage()?.ok_or_else(|| JsValue::from_str("No localStorage"))?;
     
-    // Get PDF data
-    let pdf_json = storage.get_item(file_id)?
+    // Get file metadata
+    let file_json = storage.get_item(file_id)?
         .ok_or_else(|| JsValue::from_str(&format!("File not found: {}", file_id)))?;
     
-    let pdf_data: PdfFile = serde_json::from_str(&pdf_json)
-        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    // Check file type by ID prefix
+    if file_id.starts_with("audio_") {
+        // Audio file
+        let audio_data: AudioFile = serde_json::from_str(&file_json)
+            .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+        
+        // Get base64 audio data
+        let base64_data = storage.get_item(&format!("{}_data", file_id))?
+            .ok_or_else(|| JsValue::from_str("Audio data not found"))?;
+        
+        // Decode base64 to binary
+        let binary_string = js_sys::eval(&format!("atob('{}')", base64_data))
+            .map_err(|e| JsValue::from_str(&format!("Base64 decode error: {:?}", e)))?;
+        let binary_string = binary_string.dyn_into::<js_sys::JsString>()
+            .map_err(|e| JsValue::from_str(&format!("Cast error: {:?}", e)))?;
+        let bytes: Vec<u8> = (0..binary_string.length())
+            .map(|i| binary_string.char_code_at(i) as u8)
+            .collect();
+        
+        // Create blob
+        let array = js_sys::Uint8Array::new_with_length(bytes.len() as u32);
+        array.copy_from(&bytes);
+        
+        let blob_parts = js_sys::Array::new();
+        blob_parts.push(&array);
+        
+        let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(
+            &blob_parts,
+            web_sys::BlobPropertyBag::new().type_("audio/mpeg")
+        ).map_err(|e| JsValue::from_str(&format!("Blob error: {:?}", e)))?;
+        
+        // Create object URL
+        let url = web_sys::Url::create_object_url_with_blob(&blob)
+            .map_err(|e| JsValue::from_str(&format!("URL error: {:?}", e)))?;
+        
+        // Create download link and click it
+        let link = document.create_element("a")?;
+        let link: web_sys::HtmlElement = link.dyn_into()
+            .map_err(|_| JsValue::from_str("Failed to create link"))?;
+        
+        link.set_attribute("href", &url)?;
+        link.set_attribute("download", &audio_data.filename)?;
+        link.set_attribute("style", "display: none")?;
+        
+        let body = document.body().ok_or_else(|| JsValue::from_str("No body"))?;
+        body.append_child(&link)?;
+        link.click();
+        body.remove_child(&link)?;
+        
+        let _ = web_sys::Url::revoke_object_url(&url);
+        
+        Ok(format!("✅ Audio downloaded: {}\nText: \"{}\"", audio_data.filename, audio_data.text))
+    } else if file_id.starts_with("pdf_") {
+        // PDF file
+        let pdf_data: PdfFile = serde_json::from_str(&file_json)
+            .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+        
+        // Get HTML content
+        let html_content = storage.get_item(&format!("{}_html", file_id))?
+            .unwrap_or_default();
+        
+        // Create blob and download link
+        let html_bytes = html_content.as_bytes();
+        let array = js_sys::Uint8Array::new_with_length(html_bytes.len() as u32);
+        array.copy_from(html_bytes);
+        
+        let blob_parts = js_sys::Array::new();
+        blob_parts.push(&array);
+        
+        let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(
+            &blob_parts,
+            web_sys::BlobPropertyBag::new().type_("text/html")
+        ).map_err(|e| JsValue::from_str(&format!("Blob error: {:?}", e)))?;
+        
+        // Create object URL
+        let url = web_sys::Url::create_object_url_with_blob(&blob)
+            .map_err(|e| JsValue::from_str(&format!("URL error: {:?}", e)))?;
+        
+        // Create download link and click it
+        let link = document.create_element("a")?;
+        let link: web_sys::HtmlElement = link.dyn_into()
+            .map_err(|_| JsValue::from_str("Failed to create link"))?;
+        
+        link.set_attribute("href", &url)?;
+        link.set_attribute("download", &format!("{}.html", pdf_data.filename.replace(".pdf", "")))?;
+        link.set_attribute("style", "display: none")?;
+        
+        let body = document.body().ok_or_else(|| JsValue::from_str("No body"))?;
+        body.append_child(&link)?;
+        link.click();
+        body.remove_child(&link)?;
+        
+        let _ = web_sys::Url::revoke_object_url(&url);
+        
+        Ok(format!(
+            "✅ Download started: {}\n\nNote: This is an HTML file that can be opened in browser and printed as PDF.\nTo save as PDF: Open the file → Print → Save as PDF",
+            pdf_data.filename
+        ))
+    } else {
+        Err(JsValue::from_str(&format!("Unknown file type: {}", file_id)))
+    }
+}
+
+/// List all saved files
+async fn execute_list_files(_args: &serde_json::Value) -> Result<String, JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
+    let storage = window.local_storage()?.ok_or_else(|| JsValue::from_str("No localStorage"))?;
     
-    // Get HTML content
-    let html_content = storage.get_item(&format!("{}_html", file_id))?
+    let file_index: Vec<String> = storage.get_item("clawasm_files")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     
-    // Create blob and download link
-    let html_bytes = html_content.as_bytes();
-    let array = js_sys::Uint8Array::new_with_length(html_bytes.len() as u32);
-    array.copy_from(html_bytes);
+    if file_index.is_empty() {
+        return Ok("📁 No saved files found.\n\nCreate files using:\n- create_pdf (for PDFs)\n- text_to_speech (for audio)".to_string());
+    }
     
-    let blob_parts = js_sys::Array::new();
-    blob_parts.push(&array);
+    let mut result = String::from("📁 Saved Files:\n\n");
     
-    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(
-        &blob_parts,
-        web_sys::BlobPropertyBag::new().type_("text/html")
-    ).map_err(|e| JsValue::from_str(&format!("Blob error: {:?}", e)))?;
+    for file_id in &file_index {
+        if let Some(json) = storage.get_item(file_id).ok().flatten() {
+            if file_id.starts_with("audio_") {
+                if let Ok(audio) = serde_json::from_str::<AudioFile>(&json) {
+                    result.push_str(&format!("🔊 {} - \"{}\" ({})\n   ID: {}\n   Created: {}\n\n", 
+                        audio.filename, 
+                        audio.text.chars().take(50).collect::<String>() + if audio.text.len() > 50 { "..." } else { "" },
+                        audio.lang,
+                        audio.id,
+                        audio.created_at
+                    ));
+                }
+            } else if file_id.starts_with("pdf_") {
+                if let Ok(pdf) = serde_json::from_str::<PdfFile>(&json) {
+                    result.push_str(&format!("📄 {} - \"{}\"\n   ID: {}\n   Created: {}\n\n", 
+                        pdf.filename, 
+                        pdf.title,
+                        pdf.id,
+                        pdf.created_at
+                    ));
+                }
+            }
+        }
+    }
     
-    // Create object URL
-    let url = web_sys::Url::create_object_url_with_blob(&blob)
-        .map_err(|e| JsValue::from_str(&format!("URL error: {:?}", e)))?;
+    result.push_str("\n💡 Use download_file with the file ID to download any file.");
     
-    // Create download link and click it
-    let link = document.create_element("a")?;
-    let link: web_sys::HtmlElement = link.dyn_into()
-        .map_err(|_| JsValue::from_str("Failed to create link"))?;
+    Ok(result)
+}
+
+/// Get current conversation history
+async fn execute_get_conversation(args: &serde_json::Value) -> Result<String, JsValue> {
+    let format = args["format"].as_str().unwrap_or("markdown");
     
-    link.set_attribute("href", &url)?;
-    link.set_attribute("download", &format!("{}.html", pdf_data.filename.replace(".pdf", "")))?;
-    link.set_attribute("style", "display: none")?;
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
+    let storage = window.local_storage()?.ok_or_else(|| JsValue::from_str("No localStorage"))?;
     
-    let body = document.body().ok_or_else(|| JsValue::from_str("No body"))?;
-    body.append_child(&link)?;
+    // Get active session ID
+    let active_session_id = storage.get_item("clawasm_active_session")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "default".to_string());
     
-    // Click the link
-    link.click();
+    // Get sessions
+    let sessions_json = storage.get_item("clawasm_sessions")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "{}".to_string());
     
-    // Clean up
-    body.remove_child(&link)?;
-    web_sys::Url::revoke_object_url(&url);
+    let sessions: serde_json::Value = serde_json::from_str(&sessions_json)
+        .unwrap_or(serde_json::json!({}));
     
-    Ok(format!(
-        "✅ Download started: {}\n\nNote: This is an HTML file that can be opened in browser and printed as PDF.\nTo save as PDF: Open the file → Print → Save as PDF",
-        pdf_data.filename
-    ))
+    let messages = sessions.get(&active_session_id)
+        .and_then(|s| s.get("messages"))
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
+    
+    if messages.is_empty() {
+        return Ok("📝 No conversation history found.".to_string());
+    }
+    
+    let mut result = String::new();
+    
+    match format {
+        "summary" => {
+            result.push_str("📝 **Conversation Summary**\n\n");
+            let user_count = messages.iter().filter(|m| m["role"] == "user").count();
+            let assistant_count = messages.iter().filter(|m| m["role"] == "assistant").count();
+            result.push_str(&format!("- {} user messages\n- {} assistant responses\n", user_count, assistant_count));
+            if let Some(first) = messages.first() {
+                if let Some(content) = first["content"].as_str() {
+                    let preview: String = content.chars().take(100).collect();
+                    result.push_str(&format!("\n**Started with:** {}...\n", preview));
+                }
+            }
+        }
+        "text" => {
+            result.push_str("CONVERSATION HISTORY\n");
+            result.push_str("====================\n\n");
+            for msg in &messages {
+                let role = msg["role"].as_str().unwrap_or("unknown");
+                let content = msg["content"].as_str().unwrap_or("");
+                result.push_str(&format!("[{}]: {}\n\n", role.to_uppercase(), content));
+            }
+        }
+        _ => { // markdown
+            result.push_str("# 📝 Conversation History\n\n");
+            for msg in &messages {
+                let role = msg["role"].as_str().unwrap_or("unknown");
+                let content = msg["content"].as_str().unwrap_or("");
+                match role {
+                    "user" => result.push_str(&format!("**👤 User:** {}\n\n---\n\n", content)),
+                    "assistant" => result.push_str(&format!("**🤖 Assistant:** {}\n\n---\n\n", content)),
+                    "system" => result.push_str(&format!("**⚙️ System:** {}\n\n---\n\n", content.chars().take(200).collect::<String>())),
+                    _ => result.push_str(&format!("**{}:** {}\n\n", role, content)),
+                }
+            }
+        }
+    }
+    
+    result.push_str("\n💡 Use this content with create_pdf to save the conversation as a PDF.");
+    
+    Ok(result)
 }
 
 // URL encoding module
@@ -2033,7 +2244,7 @@ async fn execute_scan_cors(args: &serde_json::Value) -> Result<String, JsValue> 
 // Audio & Media Tools
 // ============================================
 
-/// Text-to-Speech with downloadable audio file
+/// Text-to-Speech with downloadable audio file (persisted for later access)
 async fn execute_text_to_speech(args: &serde_json::Value) -> Result<String, JsValue> {
     let text = args["text"].as_str()
         .ok_or_else(|| JsValue::from_str("Missing 'text' parameter"))?;
@@ -2051,6 +2262,10 @@ async fn execute_text_to_speech(args: &serde_json::Value) -> Result<String, JsVa
     );
     
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
+    let storage = window.local_storage()?.ok_or_else(|| JsValue::from_str("No localStorage"))?;
+    
+    // Generate unique file ID
+    let file_id = format!("audio_{}", chrono::Utc::now().timestamp_millis());
     
     let body = serde_json::json!({
         "url": tts_url,
@@ -2074,6 +2289,50 @@ async fn execute_text_to_speech(args: &serde_json::Value) -> Result<String, JsVa
     let blob = JsFuture::from(response.blob()?).await?;
     let blob: Blob = blob.dyn_into()?;
     
+    // Convert blob to base64 for storage
+    let array_buffer = JsFuture::from(blob.array_buffer()).await?;
+    let uint8_array = js_sys::Uint8Array::new(&array_buffer);
+    
+    // Convert to base64 using JavaScript
+    let js_array = js_sys::Array::new();
+    for i in 0..uint8_array.length() {
+        js_array.push(&js_sys::Number::from(uint8_array.get_index(i)));
+    }
+    
+    let base64 = js_sys::eval("btoa(String.fromCharCode.apply(null, arguments))")
+        .map_err(|e| JsValue::from_str(&format!("Base64 eval error: {:?}", e)))?
+        .dyn_into::<js_sys::Function>()
+        .map_err(|e| JsValue::from_str(&format!("Base64 cast error: {:?}", e)))?
+        .apply(&JsValue::NULL, &js_array)
+        .map_err(|e| JsValue::from_str(&format!("Base64 apply error: {:?}", e)))?
+        .as_string()
+        .ok_or_else(|| JsValue::from_str("Failed to convert to base64"))?;
+    
+    // Store audio metadata
+    let audio_file = AudioFile {
+        id: file_id.clone(),
+        text: text_to_use.to_string(),
+        lang: lang.to_string(),
+        filename: format!("{}.mp3", filename),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let audio_json = serde_json::to_string(&audio_file)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
+    storage.set_item(&file_id, &audio_json)?;
+    
+    // Store base64 audio data
+    storage.set_item(&format!("{}_data", file_id), &base64)?;
+    
+    // Update file index
+    let mut file_index: Vec<String> = storage.get_item("clawasm_files")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    file_index.push(file_id.clone());
+    storage.set_item("clawasm_files", &serde_json::to_string(&file_index).unwrap())?;
+    
+    // Create blob URL for immediate download
     let url = web_sys::Url::create_object_url_with_blob(&blob)?;
     
     let js_code = format!(r#"
@@ -2090,7 +2349,8 @@ async fn execute_text_to_speech(args: &serde_json::Value) -> Result<String, JsVa
     
     let result = js_sys::eval(&js_code)?.as_string().unwrap_or_else(|| "Audio created".to_string());
     
-    Ok(format!("🔊 TTS completed!\n\nText: \"{}\"\nLang: {}\n\n{}", text_to_use, lang, result))
+    Ok(format!("🔊 TTS completed!\n\nText: \"{}\"\nLang: {}\nFile ID: {}\n\n{}\n\n💾 Audio saved! Use download_file with file_id '{}' to download later.", 
+        text_to_use, lang, file_id, result, file_id))
 }
 
 /// Speak text aloud using browser speech synthesis

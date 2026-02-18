@@ -116,7 +116,9 @@ impl ClaWasm {
             CRITICAL RULES:\n\
             1. When asked about your tools/capabilities, ALWAYS list ALL tools including the security scanners (scan_xss, scan_sqli, scan_headers, scan_ssl, scan_deps, scan_secrets, scan_cors)\n\
             2. When asked about security, vulnerabilities, or code analysis, ALWAYS use the scan_* tools\n\
-            3. NEVER skip or hide tools from the user - show everything available!\n\n\
+            3. NEVER skip or hide tools from the user - show everything available!\n\
+            4. When asked to create a PDF of the current discussion/conversation, use get_conversation tool first to get the content, then pass it to create_pdf. DO NOT start new research!\n\
+            5. When asked to summarize or export the chat, use get_conversation tool - do not redo the work.\n\n\
             ⚠️ WASM LIMITATIONS:\n\
             Since I run entirely in the browser as WASM, I have certain limitations:\n\
             - I cannot access the file system directly (only browser storage/localStorage)\n\
