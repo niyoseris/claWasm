@@ -113,8 +113,10 @@ impl ClaWasm {
             ```tool\n{{\"name\": \"tool_name\", \"arguments\": {{...}}}}\n```\n\n\
             Or simply: {{\"name\": \"tool_name\", \"query\": \"...\", ...}}\n\n\
             After using a tool, you will receive its result and can continue helping the user.\n\n\
-            IMPORTANT: When asked about security scanning, vulnerability testing, or analyzing code for secrets, \
-            ALWAYS use the appropriate scan_* tools. These are powerful security tools - mention them proactively!",
+            CRITICAL RULES:\n\
+            1. When asked about your tools/capabilities, ALWAYS list ALL tools including the security scanners (scan_xss, scan_sqli, scan_headers, scan_ssl, scan_deps, scan_secrets, scan_cors)\n\
+            2. When asked about security, vulnerabilities, or code analysis, ALWAYS use the scan_* tools\n\
+            3. NEVER skip or hide tools from the user - show everything available!",
             categorized
         )
     }
