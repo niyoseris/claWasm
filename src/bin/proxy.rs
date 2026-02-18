@@ -23,9 +23,24 @@ struct ProxyRequest {
 }
 
 async fn proxy_handler(
-    req: web::Json<ProxyRequest>,
+    req: actix_web::web::Bytes,
     _http_req: HttpRequest,
 ) -> HttpResponse {
+    // Parse body manually to give better error messages
+    let proxy_req: ProxyRequest = match serde_json::from_slice(&req) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("❌ Proxy: Failed to parse request body: {}", e);
+            eprintln!("   Raw body: {}", String::from_utf8_lossy(&req));
+            return HttpResponse::BadRequest()
+                .insert_header(("Access-Control-Allow-Origin", "*"))
+                .body(format!("Invalid JSON body: {}", e));
+        }
+    };
+    let req = proxy_req;
+    
+    eprintln!("→ Proxy: {} {}", req.method, req.url);
+    
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .build()
