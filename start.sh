@@ -50,12 +50,13 @@ if lsof -ti :3000 &>/dev/null; then
     sleep 1
 fi
 
-# Start proxy in background
+# Start proxy in background (detached, survives script exit)
 if [ -f "./target/release/proxy" ]; then
     echo "🔄 Starting proxy server on http://localhost:3000..."
-    ./target/release/proxy &
+    nohup ./target/release/proxy > /tmp/clawasm_proxy.log 2>&1 &
     PROXY_PID=$!
     sleep 1
+    echo "   Proxy PID: $PROXY_PID (log: /tmp/clawasm_proxy.log)"
 fi
 
 # Start web server

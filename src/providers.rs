@@ -266,6 +266,7 @@ impl Provider {
         let response: Response = response.dyn_into()?;
         
         if !response.ok() {
+            let status = response.status();
             let error_text = JsFuture::from(response.text()?).await?;
             let error_str = error_text.as_string().unwrap_or_default();
             
@@ -274,10 +275,18 @@ impl Provider {
                 return self.chat_ollama_native(messages, config, base_url).await;
             }
             
+            // Clear error for unauthorized
+            if status == 401 || error_str.contains("unauthorized") || error_str.contains("Unauthorized") {
+                return Err(JsValue::from_str(
+                    "Ollama Cloud API key required. Go to Settings and enter your Ollama Cloud API key."
+                ));
+            }
+            
             return Err(JsValue::from_str(&format!(
-                "Ollama error: {}. Make sure {} is running",
+                "Ollama error ({}): {}. Make sure {} is running",
+                status,
                 error_str,
-                if is_ollama_cloud { "Ollama Cloud API" } else { "Ollama (ollama serve)" }
+                if is_ollama_cloud { "Ollama Cloud API key is set in Settings" } else { "Ollama (ollama serve)" }
             )));
         }
         
