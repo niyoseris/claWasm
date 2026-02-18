@@ -358,6 +358,8 @@ async fn main() -> std::io::Result<()> {
         
         App::new()
             .wrap(cors)
+            .app_data(actix_web::web::JsonConfig::default().limit(52428800)) // 50MB
+            .app_data(actix_web::web::PayloadConfig::default().limit(52428800)) // 50MB
             .route("/", web::get().to(index))
             .route("/proxy", web::post().to(proxy_handler))
             .route("/proxy", web::method(actix_web::http::Method::OPTIONS).to(proxy_options))
