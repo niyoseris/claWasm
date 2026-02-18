@@ -39,7 +39,7 @@ impl Default for Config {
             system_prompt: "You are claWasm, a helpful AI assistant running entirely in the browser. \
                 You are fast, private, and ready to help with any task."
                 .to_string(),
-            max_tokens: 4096,
+            max_tokens: 8192,
             temperature: 0.7,
         }
     }

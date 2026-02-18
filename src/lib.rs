@@ -345,7 +345,66 @@ impl ClaWasm {
             }
         }
         
+        // Also try XML-style tool calls (GLM model format)
+        // e.g. {"arguments":{"query":"..."}<arg_value><arg_key>name</arg_key><arg_value>web_search</tool_call>
+        if calls.is_empty() {
+            if let Some(call) = Self::parse_xml_tool_call(response) {
+                calls.push(call);
+            }
+        }
+        
         calls
+    }
+    
+    /// Parse XML-style tool calls produced by some models (e.g. GLM)
+    fn parse_xml_tool_call(response: &str) -> Option<ToolCall> {
+        // Extract tool name from <arg_value>tool_name</tool_call> or similar patterns
+        let name = if let Some(start) = response.rfind("<arg_value>") {
+            let after = &response[start + 11..];
+            let end = after.find('<').unwrap_or(after.len());
+            let candidate = after[..end].trim().to_string();
+            if !candidate.is_empty() && !candidate.contains('{') {
+                Some(candidate)
+            } else {
+                None
+            }
+        } else {
+            None
+        }?;
+        
+        // Extract arguments from JSON fragment before the XML
+        let args = if let Some(brace_start) = response.find('{') {
+            // Find the furthest valid JSON we can extract
+            let json_fragment = &response[brace_start..];
+            // Try to find a complete JSON object
+            let mut depth = 0i32;
+            let mut end_idx = None;
+            for (i, c) in json_fragment.char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end_idx = Some(i + 1);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(end) = end_idx {
+                serde_json::from_str::<serde_json::Value>(&json_fragment[..end])
+                    .ok()
+                    .and_then(|v| v.get("arguments").cloned())
+                    .unwrap_or(serde_json::json!({}))
+            } else {
+                serde_json::json!({})
+            }
+        } else {
+            serde_json::json!({})
+        };
+        
+        Some(ToolCall { name, arguments: args })
     }
 
     /// Parse single tool call (for backwards compatibility)
