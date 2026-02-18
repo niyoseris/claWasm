@@ -607,9 +607,10 @@
         import init, { ClaWasm } from './pkg/clawasm.js';
 
         let clawasm = null;
-        let isLoading = false;
+        let isLoading = false; // Global loading state
         let currentSessionId = null;
         let sessions = {};
+        let sessionLoadingStates = {}; // Per-session loading states
 
         // Initialize
         async function initApp() {
@@ -675,6 +676,13 @@
             currentSessionId = id;
             localStorage.setItem('clawasm_active_session', id);
             
+            // Clear input field when switching sessions
+            const input = document.getElementById('messageInput');
+            if (input) {
+                input.value = '';
+                input.style.height = 'auto';
+            }
+            
             const session = sessions[id];
             
             // Clear chat and rebuild from session
@@ -706,6 +714,10 @@
                     }
                 });
             }
+            
+            // Update loading state for this session
+            const sessionLoading = sessionLoadingStates[id] || false;
+            updateStatus(sessionLoading ? 'Thinking...' : 'Ready', sessionLoading);
             
             renderSessionsList();
         }
@@ -910,7 +922,8 @@
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
             
-            if (!message || isLoading) return;
+            // Check if THIS session is loading, not global
+            if (!message || sessionLoadingStates[currentSessionId]) return;
             
             // Get settings for verbose mode
             const settings = JSON.parse(localStorage.getItem('clawasm_settings') || '{}');
@@ -920,6 +933,9 @@
             input.style.height = 'auto';
             
             addMessage('user', message);
+            
+            // Set loading for this session only
+            sessionLoadingStates[currentSessionId] = true;
             isLoading = true;
             updateStatus('Thinking...', true);
             addTypingIndicator();
@@ -965,6 +981,8 @@
                 updateStatus('Error', false);
             }
             
+            // Clear loading for this session
+            sessionLoadingStates[currentSessionId] = false;
             isLoading = false;
         }
 
