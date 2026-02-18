@@ -45,6 +45,7 @@ async fn proxy_handler(
         .use_native_tls()
         .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_secs(120))
+        .pool_max_idle_per_host(0)  // Disable connection pooling
         .build()
         .unwrap();
     
@@ -142,7 +143,11 @@ async fn proxy_handler(
                     .body(bytes)
             } else {
                 let body = response.text().await.unwrap_or_default();
-                eprintln!("← Proxy response: {} {} bytes", status.as_u16(), body.len());
+                if status.as_u16() >= 400 {
+                    eprintln!("← Proxy response: {} {} bytes | body: {}", status.as_u16(), body.len(), &body[..body.len().min(500)]);
+                } else {
+                    eprintln!("← Proxy response: {} {} bytes", status.as_u16(), body.len());
+                }
                 HttpResponse::build(status_code)
                     .insert_header(("Access-Control-Allow-Origin", "*"))
                     .insert_header(("Content-Type", "application/json"))
