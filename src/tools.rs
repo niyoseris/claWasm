@@ -2050,7 +2050,7 @@ async fn execute_scan_cors(args: &serde_json::Value) -> Result<String, JsValue> 
 async fn execute_text_to_speech(args: &serde_json::Value) -> Result<String, JsValue> {
     let text = args["text"].as_str()
         .ok_or_else(|| JsValue::from_str("Missing 'text' parameter"))?;
-    let lang = args["lang"].as_str().unwrap_or("tr");
+    let lang = args["lang"].as_str().unwrap_or("en");
     let filename = args["filename"].as_str().unwrap_or("speech");
     
     // Truncate text if too long
@@ -2110,7 +2110,7 @@ async fn execute_text_to_speech(args: &serde_json::Value) -> Result<String, JsVa
 async fn execute_speak(args: &serde_json::Value) -> Result<String, JsValue> {
     let text = args["text"].as_str()
         .ok_or_else(|| JsValue::from_str("Missing 'text' parameter"))?;
-    let lang = args["lang"].as_str().unwrap_or("tr-TR");
+    let lang = args["lang"].as_str().unwrap_or("en-US");
     let rate = args["rate"].as_f64().unwrap_or(1.0);
     
     let js_code = format!(r#"
