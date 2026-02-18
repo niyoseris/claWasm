@@ -21,7 +21,7 @@ required-features = ["proxy"]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Headers", "Request", "RequestInit", "RequestMode", "Response", "Storage", "Document", "Element", "HtmlElement", "Blob", "BlobPropertyBag", "Url", "Node"] }
+web-sys = { version = "0.3", features = ["Window", "Headers", "Request", "RequestInit", "RequestMode", "Response", "Storage", "Document", "Element", "HtmlElement", "Blob", "BlobPropertyBag", "Url", "Node", "console"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde-wasm-bindgen = "0.6"
