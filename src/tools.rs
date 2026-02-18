@@ -1043,7 +1043,21 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
         .map(|imgs| serde_json::to_string(imgs).unwrap_or_else(|_| "[]".to_string()))
         .unwrap_or_else(|| "[]".to_string());
     
-    // Use jsPDF with better formatting and proxy for images
+    // Escape content for JavaScript string
+    let content_escaped = content
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t");
+    
+    // Escape title for JavaScript
+    let title_escaped = title
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
+    
+    // Use jsPDF with better formatting
     let js_code = format!(r#"
         (async function() {{
             const {{ jsPDF }} = window.jspdf;
@@ -1052,13 +1066,18 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
                 compress: true
             }});
             
-            // Add title with better formatting
+            // Parse content
+            const content = "{}";
+            const title = "{}";
+            
+            // Add title
             doc.setFontSize(22);
             doc.setTextColor(20, 20, 20);
             doc.setFont('helvetica', 'bold');
-            const titleLines = doc.splitTextToSize({}, 170);
+            const titleLines = doc.splitTextToSize(title, 170);
             let y = 25;
             for (const line of titleLines) {{
+                if (y > 275) {{ doc.addPage(); y = 25; }}
                 doc.text(line, 20, y);
                 y += 9;
             }}
@@ -1070,46 +1089,102 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
             doc.line(20, y, 190, y);
             y += 12;
             
-            // Add content with better formatting
+            // Add content with markdown-like formatting
             doc.setFontSize(10);
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(40, 40, 40);
             
             // Split content into paragraphs
-            const paragraphs = {}.split('\\n');
+            const paragraphs = content.split('\\n');
+            let pageCount = 1;
+            
             for (const para of paragraphs) {{
-                if (para.trim() === '') {{
+                const trimmed = para.trim();
+                
+                // Skip empty lines but add small gap
+                if (trimmed === '') {{
                     y += 3;
                     continue;
                 }}
-                // Check for headers (lines starting with #)
-                if (para.startsWith('## ')) {{
-                    if (y > 250) {{ doc.addPage(); y = 25; }}
-                    y += 5;
+                
+                // Check for markdown headers
+                if (trimmed.startsWith('### ')) {{
+                    if (y > 260) {{ doc.addPage(); y = 25; pageCount++; }}
+                    y += 4;
+                    doc.setFontSize(12);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(40, 40, 40);
+                    doc.text(trimmed.replace('### ', ''), 20, y);
+                    y += 7;
+                    doc.setFontSize(10);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(60, 60, 60);
+                    continue;
+                }}
+                
+                if (trimmed.startsWith('## ')) {{
+                    if (y > 255) {{ doc.addPage(); y = 25; pageCount++; }}
+                    y += 6;
                     doc.setFontSize(14);
                     doc.setFont('helvetica', 'bold');
                     doc.setTextColor(30, 30, 30);
-                    doc.text(para.replace('## ', ''), 20, y);
+                    doc.text(trimmed.replace('## ', ''), 20, y);
                     y += 8;
                     doc.setFontSize(10);
                     doc.setFont('helvetica', 'normal');
-                    doc.setTextColor(40, 40, 40);
+                    doc.setTextColor(60, 60, 60);
                     continue;
                 }}
-                if (para.startsWith('# ')) {{
+                
+                if (trimmed.startsWith('# ')) {{
                     continue; // Skip main title, already added
                 }}
                 
-                const lines = doc.splitTextToSize(para, 170);
-                for (const line of lines) {{
-                    if (y > 275) {{
-                        doc.addPage();
-                        y = 25;
+                // Check for bullet points
+                if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {{
+                    const bulletText = trimmed.substring(2);
+                    const lines = doc.splitTextToSize('• ' + bulletText, 165);
+                    for (const line of lines) {{
+                        if (y > 275) {{ doc.addPage(); y = 25; pageCount++; }}
+                        doc.text(line, 25, y);
+                        y += 5;
                     }}
-                    doc.text(line, 20, y);
+                    y += 2;
+                    continue;
+                }}
+                
+                // Check for numbered lists
+                const numMatch = trimmed.match(/^(\\d+)\\.\\s/);
+                if (numMatch) {{
+                    const lines = doc.splitTextToSize(trimmed, 170);
+                    for (const line of lines) {{
+                        if (y > 275) {{ doc.addPage(); y = 25; pageCount++; }}
+                        doc.text(line, 20, y);
+                        y += 5;
+                    }}
+                    y += 2;
+                    continue;
+                }}
+                
+                // Check for bold text (**text**)
+                let processedText = trimmed;
+                let hasBold = processedText.includes('**');
+                
+                // Regular paragraph
+                const lines = doc.splitTextToSize(processedText, 170);
+                for (const line of lines) {{
+                    if (y > 275) {{ doc.addPage(); y = 25; pageCount++; }}
+                    
+                    // Handle bold text
+                    if (hasBold && line.includes('**')) {{
+                        // Simple approach: just remove ** markers for now
+                        doc.text(line.replace(/\\*\\*/g, ''), 20, y);
+                    }} else {{
+                        doc.text(line, 20, y);
+                    }}
                     y += 5;
                 }}
-                y += 2;
+                y += 3;
             }}
             
             // Add images via proxy to avoid CORS
@@ -1123,6 +1198,7 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
                     imageCount++;
                     doc.addPage();
                     y = 25;
+                    pageCount++;
                     
                     // Add image title/caption
                     if (img.caption) {{
@@ -1182,32 +1258,32 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
                     }} else {{
                         doc.setFontSize(9);
                         doc.setTextColor(150, 150, 150);
-                        doc.text('[Görsel yüklenemedi]', 20, y);
+                        doc.text('[Image could not be loaded]', 20, y);
                     }}
                 }} catch (e) {{
                     console.error('Image error:', e);
                     doc.setFontSize(9);
                     doc.setTextColor(150, 150, 150);
-                    doc.text('[Görsel hatası: ' + e.message + ']', 20, y);
+                    doc.text('[Image error: ' + e.message + ']', 20, y);
                 }}
             }}
             
             // Add footer
-            const pageCount = doc.internal.getNumberOfPages();
-            for (let i = 1; i <= pageCount; i++) {{
+            const totalPages = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= totalPages; i++) {{
                 doc.setPage(i);
                 doc.setFontSize(8);
                 doc.setTextColor(150, 150, 150);
-                doc.text('claWasm tarafından oluşturuldu | Sayfa ' + i + '/' + pageCount, 105, 287, {{ align: 'center' }});
+                doc.text('Created by claWasm | Page ' + i + '/' + totalPages, 105, 287, {{ align: 'center' }});
             }}
             
             // Save
             doc.save('{}.pdf');
-            return 'PDF oluşturuldu: ' + pageCount + ' sayfa, ' + imageCount + ' görsel';
+            return 'PDF created: ' + totalPages + ' pages, ' + imageCount + ' images';
         }})()
     "#, 
-        serde_json::to_string(title).unwrap(),
-        serde_json::to_string(content).unwrap(),
+        content_escaped,
+        title_escaped,
         images_json,
         filename
     );
@@ -1219,7 +1295,7 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
     let result_str = result.as_string().unwrap_or_else(|| "PDF created".to_string());
     
     Ok(format!(
-        "✅ PDF '{}' oluşturuldu!\n📄 Dosya: {}.pdf\n{}\n\n💡 PDF dosyası indirildi.",
+        "✅ PDF '{}' created!\n📄 File: {}.pdf\n{}\n\n� PDF saved to Downloads folder.",
         title, filename, result_str
     ))
 }
