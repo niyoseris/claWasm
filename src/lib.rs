@@ -189,8 +189,10 @@ impl ClaWasm {
                     
                     // Truncate long tool results to prevent context overflow
                     let truncated_result = if tool_result.len() > 2000 {
+                        // Use chars() to properly handle UTF-8 character boundaries
+                        let truncated: String = tool_result.chars().take(2000).collect();
                         format!("{}...\n[Result truncated, {} chars total]", 
-                            &tool_result[..2000], tool_result.len())
+                            truncated, tool_result.len())
                     } else {
                         tool_result
                     };
