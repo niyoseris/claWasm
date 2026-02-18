@@ -373,6 +373,51 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["url"]
             }),
         },
+        // Audio & Media Tools
+        ToolDefinition {
+            name: "text_to_speech".to_string(),
+            description: "Convert text to speech audio file and download it. Creates an MP3 audio file from text using Google Translate TTS. Supports multiple languages including Turkish (tr), English (en), German (de), French (fr), etc.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text to convert to speech (max 200 characters per call)"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "description": "Language code: tr (Turkish), en (English), de (German), fr (French), es (Spanish), it (Italian), ru (Russian), ar (Arabic). Default: tr"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Filename for the audio file (without .mp3 extension)"
+                    }
+                },
+                "required": ["text"]
+            }),
+        },
+        ToolDefinition {
+            name: "speak".to_string(),
+            description: "Speak text aloud using browser's built-in speech synthesis. Does NOT create a file, just speaks the text. Use text_to_speech if you need a downloadable audio file.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text to speak aloud"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "description": "Language code (e.g., 'tr-TR', 'en-US'). Default: tr-TR"
+                    },
+                    "rate": {
+                        "type": "number",
+                        "description": "Speech rate (0.1 to 10, default: 1)"
+                    }
+                },
+                "required": ["text"]
+            }),
+        },
     ]
 }
 
@@ -419,6 +464,9 @@ pub async fn execute_tool(name: &str, args: &serde_json::Value) -> Result<String
         "scan_deps" => execute_scan_deps(args).await,
         "scan_secrets" => execute_scan_secrets(args).await,
         "scan_cors" => execute_scan_cors(args).await,
+        // Audio & Media
+        "text_to_speech" => execute_text_to_speech(args).await,
+        "speak" => execute_speak(args).await,
         // Dynamic custom tool execution
         other => execute_custom_tool(other, args).await,
     }
@@ -1990,6 +2038,95 @@ async fn execute_scan_cors(args: &serde_json::Value) -> Result<String, JsValue> 
     } else {
         format!("🔴 CORS Scan Results\n\nURL: {}\n\nFindings:\n{}\n\nRecommendations:\n- Whitelist specific origins instead of using *\n- Validate Origin header against allowed list\n- Don't use Access-Control-Allow-Credentials with *\n- Consider CSRF protection alongside CORS", url, findings.join("\n"))
     };
+    
+    Ok(result)
+}
+
+// ============================================
+// Audio & Media Tools
+// ============================================
+
+/// Text-to-Speech with downloadable audio file
+async fn execute_text_to_speech(args: &serde_json::Value) -> Result<String, JsValue> {
+    let text = args["text"].as_str()
+        .ok_or_else(|| JsValue::from_str("Missing 'text' parameter"))?;
+    let lang = args["lang"].as_str().unwrap_or("tr");
+    let filename = args["filename"].as_str().unwrap_or("speech");
+    
+    // Truncate text if too long
+    let text_to_use = if text.len() > 200 { &text[..200] } else { text };
+    
+    // Use Google Translate TTS API via proxy
+    let encoded_text = urlencoding::encode(text_to_use);
+    let tts_url = format!(
+        "https://translate.google.com/translate_tts?ie=UTF-8&q={}&tl={}&client=tw-ob",
+        encoded_text, lang
+    );
+    
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
+    
+    let body = serde_json::json!({
+        "url": tts_url,
+        "method": "GET",
+        "headers": {}
+    });
+    
+    let headers = Headers::new()?;
+    headers.set("Content-Type", "application/json")?;
+    
+    let request_init = RequestInit::new();
+    request_init.set_method("POST");
+    request_init.set_headers(headers.as_ref());
+    request_init.set_body(&JsValue::from_str(&serde_json::to_string(&body).unwrap()));
+    request_init.set_mode(RequestMode::Cors);
+    
+    let request = Request::new_with_str_and_init("http://localhost:3000/proxy", &request_init)?;
+    let response = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let response: Response = response.dyn_into()?;
+    
+    let blob = JsFuture::from(response.blob()?).await?;
+    let blob: Blob = blob.dyn_into()?;
+    
+    let url = web_sys::Url::create_object_url_with_blob(&blob)?;
+    
+    let js_code = format!(r#"
+        (function() {{
+            const a = document.createElement('a');
+            a.href = '{}';
+            a.download = '{}.mp3';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            return 'Audio downloaded: {}.mp3';
+        }})()
+    "#, url, filename, filename);
+    
+    let result = js_sys::eval(&js_code)?.as_string().unwrap_or_else(|| "Audio created".to_string());
+    
+    Ok(format!("🔊 TTS completed!\n\nText: \"{}\"\nLang: {}\n\n{}", text_to_use, lang, result))
+}
+
+/// Speak text aloud using browser speech synthesis
+async fn execute_speak(args: &serde_json::Value) -> Result<String, JsValue> {
+    let text = args["text"].as_str()
+        .ok_or_else(|| JsValue::from_str("Missing 'text' parameter"))?;
+    let lang = args["lang"].as_str().unwrap_or("tr-TR");
+    let rate = args["rate"].as_f64().unwrap_or(1.0);
+    
+    let js_code = format!(r#"
+        (function() {{
+            if (!('speechSynthesis' in window)) {{
+                return 'TTS not supported';
+            }}
+            const u = new SpeechSynthesisUtterance("{}");
+            u.lang = "{}";
+            u.rate = {};
+            speechSynthesis.speak(u);
+            return 'Speaking: "{}"';
+        }})()
+    "#, text.replace("\"", "\\\""), lang, rate, text.replace("\"", "\\\""));
+    
+    let result = js_sys::eval(&js_code)?.as_string().unwrap_or_else(|| "Speaking".to_string());
     
     Ok(result)
 }
