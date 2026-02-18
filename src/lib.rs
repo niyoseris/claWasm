@@ -187,17 +187,40 @@ impl ClaWasm {
                         Err(e) => format!("Error: {:?}", e),
                     };
                     
-                    // Truncate long tool results to prevent context overflow
-                    let truncated_result = if tool_result.len() > 2000 {
-                        // Use chars() to properly handle UTF-8 character boundaries
-                        let truncated: String = tool_result.chars().take(2000).collect();
-                        format!("{}...\n[Result truncated, {} chars total]", 
-                            truncated, tool_result.len())
-                    } else {
-                        tool_result
-                    };
+                    // Handle long tool results by splitting into batches
+                    let batch_size = 2000; // chars per batch
+                    let result_len = tool_result.chars().count();
                     
-                    tool_results.push(format!("Tool '{}' returned:\n{}", tool_call.name, truncated_result));
+                    if result_len > batch_size {
+                        // Split into multiple batches
+                        let mut batches: Vec<String> = Vec::new();
+                        let chars: Vec<char> = tool_result.chars().collect();
+                        let mut i = 0;
+                        let batch_num = (result_len + batch_size - 1) / batch_size;
+                        
+                        while i < result_len {
+                            let end = std::cmp::min(i + batch_size, result_len);
+                            let batch: String = chars[i..end].iter().collect();
+                            let batch_idx = i / batch_size + 1;
+                            batches.push(format!(
+                                "[Part {}/{}]\n{}", 
+                                batch_idx, batch_num, batch
+                            ));
+                            i += batch_size;
+                        }
+                        
+                        // Add each batch as separate tool result
+                        for (idx, batch) in batches.into_iter().enumerate() {
+                            if idx == 0 {
+                                tool_results.push(format!("Tool '{}' (split into {} parts):\n{}", 
+                                    tool_call.name, batch_num, batch));
+                            } else {
+                                tool_results.push(batch);
+                            }
+                        }
+                    } else {
+                        tool_results.push(format!("Tool '{}' returned:\n{}", tool_call.name, tool_result));
+                    }
                 }
                 
                 // Add assistant's response to messages
