@@ -98,14 +98,15 @@ async fn proxy_handler(
                 .insert_header(("Access-Control-Allow-Methods", "POST, OPTIONS, GET"))
                 .insert_header(("Access-Control-Allow-Headers", "Content-Type, Authorization, *"));
             
-            // Forward response headers
-            for (name, value) in headers {
-                if let Some(name) = name {
-                    // Skip headers that might cause issues
-                    if name != "content-encoding" && name != "transfer-encoding" {
-                        if let Ok(v) = value.to_str() {
-                            builder.append_header((name.as_str(), v));
-                        }
+            // Forward only safe response headers
+            let skip_headers = ["content-encoding", "transfer-encoding", "content-length", 
+                                "connection", "keep-alive", "access-control-allow-origin",
+                                "access-control-allow-methods", "access-control-allow-headers"];
+            for (name, value) in headers.iter() {
+                let name_lower = name.as_str().to_lowercase();
+                if !skip_headers.contains(&name_lower.as_str()) {
+                    if let Ok(v) = value.to_str() {
+                        builder.append_header((name.as_str(), v));
                     }
                 }
             }
