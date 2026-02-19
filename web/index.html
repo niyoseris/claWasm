@@ -1132,9 +1132,10 @@
         window.downloadPdf = async function(fileId) {
             try {
                 const result = await claWasm.call_tool("download_file", { file_id: fileId });
-                addMessage("assistant", result);
+                addMessage("assistant", result || "✅ Download completed!");
             } catch (e) {
-                addMessage("assistant", "❌ Download error: " + e.message);
+                const errMsg = e.message || e.toString() || "Unknown error";
+                addMessage("assistant", "❌ Download error: " + errMsg);
             }
         };
     </script>
