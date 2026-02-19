@@ -998,7 +998,7 @@ struct RedditPost {
     url: String,
 }
 
-/// Create PDF document using HTML-to-PDF (browser print dialog)
+/// Create PDF document using pdf-writer (WASM compatible)
 async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue> {
     let title = args["title"].as_str()
         .ok_or_else(|| JsValue::from_str("Missing 'title' parameter"))?;
@@ -1007,15 +1007,20 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
     let filename = args["filename"].as_str()
         .unwrap_or(title)
         .replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '-', "_");
-    let images = args["images"].as_array();
     
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
     
     // Generate unique file ID
     let file_id = format!("pdf_{}", chrono::Utc::now().timestamp_millis());
     
-    // Store PDF data in localStorage for later download
+    // Generate PDF using pdf-writer
+    let pdf_bytes = generate_pdf(title, content)?;
+    
+    // Store PDF data in localStorage
     let storage = window.local_storage()?.ok_or_else(|| JsValue::from_str("No localStorage"))?;
+    
+    // Convert PDF bytes to base64 for storage
+    let base64_pdf = base64_encode(&pdf_bytes);
     
     let pdf_data = PdfFile {
         id: file_id.clone(),
@@ -1029,6 +1034,9 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
     storage.set_item(&file_id, &pdf_json)?;
     
+    // Store raw PDF bytes (base64 encoded)
+    storage.set_item(&format!("{}_data", file_id), &base64_pdf)?;
+    
     // Also store in file index
     let mut file_index: Vec<String> = storage.get_item("clawasm_files")
         .ok()
@@ -1038,300 +1046,205 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
     file_index.push(file_id.clone());
     storage.set_item("clawasm_files", &serde_json::to_string(&file_index).unwrap())?;
     
-    // Prepare images JSON
-    let images_json = images
-        .map(|imgs| serde_json::to_string(imgs).unwrap_or_else(|_| "[]".to_string()))
-        .unwrap_or_else(|| "[]".to_string());
-    
-    // Escape content for HTML
-    let content_escaped = content
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;");
-    
-    // Escape title for HTML
-    let title_escaped = title
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;");
-    
-    // Convert markdown-like content to HTML
-    let html_content = markdown_to_html(&content_escaped);
-    
-    // Create HTML document for printing
+    // Trigger download
     let js_code = format!(r#"
-        (async function() {{
-            const title = "{}";
-            const contentHtml = `{}`;
-            const images = {};
-            const filename = "{}";
-            
-            // Build images HTML
-            let imagesHtml = '';
-            if (images && images.length > 0) {{
-                imagesHtml = '<div class="images-section"><h2>Images</h2>';
-                for (const img of images) {{
-                    try {{
-                        // Fetch image via proxy
-                        const proxyBody = JSON.stringify({{
-                            url: img.url,
-                            method: 'GET',
-                            headers: {{}}
-                        }});
-                        
-                        const response = await fetch('http://localhost:3000/proxy', {{
-                            method: 'POST',
-                            headers: {{ 'Content-Type': 'application/json' }},
-                            body: proxyBody
-                        }});
-                        
-                        if (response.ok) {{
-                            const blob = await response.blob();
-                            const dataUrl = await new Promise((resolve, reject) => {{
-                                const reader = new FileReader();
-                                reader.onload = () => resolve(reader.result);
-                                reader.onerror = reject;
-                                reader.readAsDataURL(blob);
-                            }});
-                            
-                            imagesHtml += `<figure class="image-figure">
-                                <img src="${{dataUrl}}" alt="${{img.caption || 'Image'}}" class="document-image">
-                                ${{img.caption ? `<figcaption>${{img.caption}}</figcaption>` : ''}}
-                            </figure>`;
-                        }}
-                    }} catch (e) {{
-                        console.error('Image load error:', e);
-                    }}
-                }}
-                imagesHtml += '</div>';
+        (function() {{
+            const pdfData = atob("{}");
+            const bytes = new Uint8Array(pdfData.length);
+            for (let i = 0; i < pdfData.length; i++) {{
+                bytes[i] = pdfData.charCodeAt(i);
             }}
-            
-            // Create full HTML document
-            const htmlDoc = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${{title}}</title>
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 20px;
-            background: #fff;
-        }}
-        
-        .document-header {{
-            text-align: center;
-            border-bottom: 3px solid #2563eb;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }}
-        
-        .document-title {{
-            font-size: 28px;
-            font-weight: 700;
-            color: #1a1a1a;
-            margin-bottom: 10px;
-        }}
-        
-        .document-meta {{
-            font-size: 12px;
-            color: #666;
-        }}
-        
-        .document-content {{
-            font-size: 14px;
-            color: #333;
-        }}
-        
-        .document-content h1 {{
-            font-size: 24px;
-            color: #1a1a1a;
-            margin: 30px 0 15px 0;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #e5e7eb;
-        }}
-        
-        .document-content h2 {{
-            font-size: 20px;
-            color: #1f2937;
-            margin: 25px 0 12px 0;
-        }}
-        
-        .document-content h3 {{
-            font-size: 16px;
-            color: #374151;
-            margin: 20px 0 10px 0;
-        }}
-        
-        .document-content p {{
-            margin: 12px 0;
-            text-align: justify;
-        }}
-        
-        .document-content ul, .document-content ol {{
-            margin: 12px 0 12px 25px;
-        }}
-        
-        .document-content li {{
-            margin: 6px 0;
-        }}
-        
-        .document-content code {{
-            background: #f3f4f6;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 13px;
-        }}
-        
-        .document-content pre {{
-            background: #1f2937;
-            color: #e5e7eb;
-            padding: 15px;
-            border-radius: 8px;
-            overflow-x: auto;
-            margin: 15px 0;
-        }}
-        
-        .document-content pre code {{
-            background: none;
-            color: inherit;
-        }}
-        
-        .document-content blockquote {{
-            border-left: 4px solid #2563eb;
-            padding-left: 15px;
-            margin: 15px 0;
-            color: #4b5563;
-            font-style: italic;
-        }}
-        
-        .document-content strong {{
-            font-weight: 600;
-        }}
-        
-        .document-content em {{
-            font-style: italic;
-        }}
-        
-        .images-section {{
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 2px solid #e5e7eb;
-        }}
-        
-        .image-figure {{
-            margin: 20px 0;
-            text-align: center;
-        }}
-        
-        .document-image {{
-            max-width: 100%;
-            height: auto;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }}
-        
-        figcaption {{
-            font-size: 12px;
-            color: #666;
-            margin-top: 8px;
-            font-style: italic;
-        }}
-        
-        .document-footer {{
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #e5e7eb;
-            text-align: center;
-            font-size: 11px;
-            color: #9ca3af;
-        }}
-        
-        /* Print styles */
-        @media print {{
-            body {{
-                padding: 0;
-                max-width: none;
-            }}
-            
-            .document-header {{
-                border-bottom-color: #000;
-            }}
-            
-            .document-image {{
-                page-break-inside: avoid;
-            }}
-            
-            .image-figure {{
-                page-break-inside: avoid;
-            }}
-        }}
-    </style>
-</head>
-<body>
-    <header class="document-header">
-        <h1 class="document-title">${{title}}</h1>
-        <div class="document-meta">Created by claWasm • ${{new Date().toLocaleDateString()}}</div>
-    </header>
-    
-    <main class="document-content">
-        ${{contentHtml}}
-        ${{imagesHtml}}
-    </main>
-    
-    <footer class="document-footer">
-        Generated by claWasm - Browser-based AI Assistant
-    </footer>
-</body>
-</html>`;
-            
-            // Open in new window and trigger print
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {{
-                return 'Error: Pop-up blocked. Please allow pop-ups and try again.';
-            }}
-            
-            printWindow.document.write(htmlDoc);
-            printWindow.document.close();
-            
-            // Wait for images to load then print
-            setTimeout(() => {{
-                printWindow.print();
-            }}, 500);
-            
-            return 'PDF ready! Use the print dialog to save as PDF.';
+            const blob = new Blob([bytes], {{ type: "application/pdf" }});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "{}.pdf";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            return "Download started";
         }})()
-    "#, 
-        title_escaped,
-        html_content,
-        images_json,
-        filename
-    );
+    "#, base64_pdf, filename);
     
-    // Execute JavaScript
     let result = js_sys::eval(&js_code)
-        .map_err(|e| JsValue::from_str(&format!("JavaScript error: {:?}", e)))?;
+        .map_err(|e| JsValue::from_str(&format!("JS error: {:?}", e)))?;
     
     let result_str = result.as_string().unwrap_or_else(|| "PDF created".to_string());
     
     Ok(format!(
-        "✅ PDF '{}' created!\n📄 File: {}.pdf\n{}\n\n💡 Use 'Save as PDF' in the print dialog that opened.",
-        title, filename, result_str
+        "✅ PDF '{}' created!\n📄 File: {}.pdf\n📊 Size: {} bytes\n\n💡 PDF downloaded automatically.\n💾 Also saved for later download with file_id: {}",
+        title, filename, pdf_bytes.len(), file_id
     ))
+}
+
+/// Generate PDF using manual PDF structure (WASM compatible, no external deps)
+fn generate_pdf(title: &str, content: &str) -> Result<Vec<u8>, JsValue> {
+    // A4 page: 595 x 842 points
+    let page_width = 595.0;
+    let page_height = 842.0;
+    let margin = 50.0;
+    let content_width = page_width - (margin * 2.0);
+    
+    // Process content into lines with positions
+    let mut y_pos = page_height - margin - 30.0;
+    let line_height = 14.0;
+    let mut pdf_content = String::new();
+    
+    // Add title
+    let title_escaped = escape_pdf_string(title);
+    pdf_content.push_str(&format!("BT\n/F1 24 Tf\n{} {} Td\n({}) Tj\nET\n", 
+        margin, y_pos, title_escaped));
+    y_pos -= 30.0;
+    
+    // Add separator
+    pdf_content.push_str(&format!("BT\n/F1 10 Tf\n{} {} Td\n(============================================================) Tj\nET\n", 
+        margin, y_pos));
+    y_pos -= 20.0;
+    
+    // Process content lines
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            y_pos -= line_height / 2.0;
+            continue;
+        }
+        
+        // Check for headers
+        let (font_size, text) = if trimmed.starts_with("# ") {
+            (18.0, &trimmed[2..])
+        } else if trimmed.starts_with("## ") {
+            (14.0, &trimmed[3..])
+        } else if trimmed.starts_with("### ") {
+            (12.0, &trimmed[4..])
+        } else {
+            (10.0, trimmed)
+        };
+        
+        // Word wrap
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let mut current_line = String::new();
+        
+        for word in words {
+            let test_line = if current_line.is_empty() {
+                word.to_string()
+            } else {
+                format!("{} {}", current_line, word)
+            };
+            
+            // Rough width estimate (avg char width ~0.5 * font_size)
+            let width = test_line.len() as f32 * font_size * 0.5;
+            
+            if width > content_width {
+                if !current_line.is_empty() {
+                    let escaped = escape_pdf_string(&current_line);
+                    pdf_content.push_str(&format!("BT\n/F1 {} Tf\n{} {} Td\n({}) Tj\nET\n", 
+                        font_size, margin, y_pos, escaped));
+                    y_pos -= line_height;
+                }
+                current_line = word.to_string();
+            } else {
+                current_line = test_line;
+            }
+        }
+        
+        if !current_line.is_empty() {
+            let escaped = escape_pdf_string(&current_line);
+            pdf_content.push_str(&format!("BT\n/F1 {} Tf\n{} {} Td\n({}) Tj\nET\n", 
+                font_size, margin, y_pos, escaped));
+            y_pos -= line_height;
+        }
+        
+        // Check page overflow
+        if y_pos < margin + 30.0 {
+            break;
+        }
+    }
+    
+    // Build complete PDF
+    let pdf = format!(r#"%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+
+4 0 obj
+<< /Length {} >>
+stream
+{}
+endstream
+endobj
+
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000266 00000 n 
+0000000415 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+{}
+%%EOF"#,
+        page_width as i32,
+        page_height as i32,
+        pdf_content.len(),
+        pdf_content,
+        500 + pdf_content.len()
+    );
+    
+    Ok(pdf.into_bytes())
+}
+
+/// Escape special characters for PDF string
+fn escape_pdf_string(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
+}
+
+/// Simple base64 encoding (no external dependency)
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    
+    let mut result = String::new();
+    let chunks = data.chunks(3);
+    
+    for chunk in chunks {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+        
+        result.push(CHARS[b0 >> 2] as char);
+        result.push(CHARS[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
+        
+        if chunk.len() > 1 {
+            result.push(CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] as char);
+        } else {
+            result.push('=');
+        }
+        
+        if chunk.len() > 2 {
+            result.push(CHARS[b2 & 0x3f] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    
+    result
 }
 
 /// Convert markdown-like text to HTML
@@ -1537,34 +1450,40 @@ async fn execute_download_file(args: &serde_json::Value) -> Result<String, JsVal
         let pdf_data: PdfFile = serde_json::from_str(&file_json)
             .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
         
-        // Get HTML content
-        let html_content = storage.get_item(&format!("{}_html", file_id))?
-            .unwrap_or_default();
+        // Get base64 PDF data
+        let base64_data = storage.get_item(&format!("{}_data", file_id))?
+            .ok_or_else(|| JsValue::from_str("PDF data not found"))?;
         
-        // Create blob and download link
-        let html_bytes = html_content.as_bytes();
-        let array = js_sys::Uint8Array::new_with_length(html_bytes.len() as u32);
-        array.copy_from(html_bytes);
+        // Decode base64 to binary
+        let binary_string = js_sys::eval(&format!("atob('{}')", base64_data))
+            .map_err(|e| JsValue::from_str(&format!("Base64 decode error: {:?}", e)))?;
+        let binary_string = binary_string.dyn_into::<js_sys::JsString>()
+            .map_err(|e| JsValue::from_str(&format!("Cast error: {:?}", e)))?;
+        let bytes: Vec<u8> = (0..binary_string.length())
+            .map(|i| binary_string.char_code_at(i) as u8)
+            .collect();
+        
+        // Create blob and download
+        let array = js_sys::Uint8Array::new_with_length(bytes.len() as u32);
+        array.copy_from(&bytes);
         
         let blob_parts = js_sys::Array::new();
         blob_parts.push(&array);
         
         let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(
             &blob_parts,
-            web_sys::BlobPropertyBag::new().type_("text/html")
+            web_sys::BlobPropertyBag::new().type_("application/pdf")
         ).map_err(|e| JsValue::from_str(&format!("Blob error: {:?}", e)))?;
         
-        // Create object URL
         let url = web_sys::Url::create_object_url_with_blob(&blob)
             .map_err(|e| JsValue::from_str(&format!("URL error: {:?}", e)))?;
         
-        // Create download link and click it
         let link = document.create_element("a")?;
         let link: web_sys::HtmlElement = link.dyn_into()
             .map_err(|_| JsValue::from_str("Failed to create link"))?;
         
         link.set_attribute("href", &url)?;
-        link.set_attribute("download", &format!("{}.html", pdf_data.filename.replace(".pdf", "")))?;
+        link.set_attribute("download", &pdf_data.filename)?;
         link.set_attribute("style", "display: none")?;
         
         let body = document.body().ok_or_else(|| JsValue::from_str("No body"))?;
@@ -1574,10 +1493,7 @@ async fn execute_download_file(args: &serde_json::Value) -> Result<String, JsVal
         
         let _ = web_sys::Url::revoke_object_url(&url);
         
-        Ok(format!(
-            "✅ Download started: {}\n\nNote: This is an HTML file that can be opened in browser and printed as PDF.\nTo save as PDF: Open the file → Print → Save as PDF",
-            pdf_data.filename
-        ))
+        Ok(format!("✅ PDF downloaded: {}", pdf_data.filename))
     } else {
         Err(JsValue::from_str(&format!("Unknown file type: {}", file_id)))
     }
