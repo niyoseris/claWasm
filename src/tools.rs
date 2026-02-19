@@ -1046,20 +1046,35 @@ async fn execute_create_pdf(args: &serde_json::Value) -> Result<String, JsValue>
     file_index.push(file_id.clone());
     storage.set_item("clawasm_files", &serde_json::to_string(&file_index).unwrap())?;
     
-    // Trigger download using data URL (more reliable for large files)
+    // Trigger download using Blob (most reliable)
     let js_code = format!(r#"
         (function() {{
-            const pdfData = "{}";
-            const link = document.createElement('a');
-            link.href = 'data:application/pdf;base64,' + pdfData;
-            link.download = "{}.pdf";
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            return "Download started";
+            try {{
+                const base64 = "{}";
+                const binaryString = atob(base64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {{
+                    bytes[i] = binaryString.charCodeAt(i);
+                }}
+                const blob = new Blob([bytes], {{ type: "application/pdf" }});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "{}";
+                a.style.display = "none";
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(function() {{
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }}, 100);
+                return "OK";
+            }} catch(e) {{
+                return "Error: " + e.message;
+            }}
         }})()
-    "#, base64_pdf, filename);
+    "#, base64_pdf.replace('"', "\\\""), filename);
     
     let result = js_sys::eval(&js_code)
         .map_err(|e| JsValue::from_str(&format!("JS error: {:?}", e)))?;
