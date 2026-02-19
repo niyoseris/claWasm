@@ -1224,7 +1224,7 @@ startxref
     Ok(pdf.into_bytes())
 }
 
-/// Escape special characters for PDF string using Unicode escapes
+/// Escape special characters for PDF string - convert Turkish to ASCII
 fn escape_pdf_string(s: &str) -> String {
     let mut result = String::new();
     for c in s.chars() {
@@ -1235,27 +1235,23 @@ fn escape_pdf_string(s: &str) -> String {
             '\n' => result.push_str("\\n"),
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
-            // Turkish characters - use Unicode escape
-            'ı' => result.push_str("\\u0131"),
-            'İ' => result.push_str("\\u0130"),
-            'ğ' => result.push_str("\\u011F"),
-            'Ğ' => result.push_str("\\u011E"),
-            'ş' => result.push_str("\\u015F"),
-            'Ş' => result.push_str("\\u015E"),
-            'ç' => result.push_str("\\u00E7"),
-            'Ç' => result.push_str("\\u00C7"),
-            'ö' => result.push_str("\\u00F6"),
-            'Ö' => result.push_str("\\u00D6"),
-            'ü' => result.push_str("\\u00FC"),
-            'Ü' => result.push_str("\\u00DC"),
+            // Turkish characters - convert to ASCII equivalent
+            'ı' => result.push('i'),
+            'İ' => result.push('I'),
+            'ğ' => result.push('g'),
+            'Ğ' => result.push('G'),
+            'ş' => result.push('s'),
+            'Ş' => result.push('S'),
+            'ç' => result.push('c'),
+            'Ç' => result.push('C'),
+            'ö' => result.push('o'),
+            'Ö' => result.push('O'),
+            'ü' => result.push('u'),
+            'Ü' => result.push('U'),
             // Regular ASCII
             _ if c.is_ascii() => result.push(c),
-            // Other Unicode - use hex escape
-            _ => {
-                for b in c.to_string().as_bytes() {
-                    result.push_str(&format!("\\x{:02X}", b));
-                }
-            }
+            // Other Unicode - skip or replace with ?
+            _ => result.push('?'),
         }
     }
     result
