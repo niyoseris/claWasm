@@ -232,11 +232,11 @@ impl ClaWasm {
                 current_messages.push(Message::user(&tool_results.join("\n\n---\n\n")));
                 
                 // Trim context if too many messages OR too large
-                let total_size: usize = current_messages.iter()
-                    .map(|m| m.content.chars().count())
+                let total_bytes: usize = current_messages.iter()
+                    .map(|m| m.content.len())
                     .sum();
                 
-                if current_messages.len() > 20 || total_size > 100000 {
+                if current_messages.len() > 20 || total_bytes > 60000 {
                     // Keep system message and trim to fit size limit
                     let system_msgs: Vec<Message> = current_messages.iter()
                         .filter(|m| matches!(m.role, Role::System))
@@ -246,13 +246,13 @@ impl ClaWasm {
                     // Build trimmed list from most recent, respecting size limit
                     let mut recent_msgs: Vec<Message> = Vec::new();
                     let mut current_size = 0;
-                    let max_size = 80000; // 80KB limit for messages
+                    let max_size = 50000; // 50KB limit for messages (bytes)
                     
                     for msg in current_messages.iter().rev() {
                         if matches!(msg.role, Role::System) {
                             continue;
                         }
-                        let msg_size = msg.content.chars().count();
+                        let msg_size = msg.content.len();
                         if current_size + msg_size > max_size {
                             break;
                         }
