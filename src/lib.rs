@@ -236,7 +236,8 @@ impl ClaWasm {
                     .map(|m| m.content.len())
                     .sum();
                 
-                if current_messages.len() > 20 || total_bytes > 60000 {
+                // More aggressive limit - prevent 400 errors from Ollama
+                if current_messages.len() > 15 || total_bytes > 40000 {
                     // Keep system message and trim to fit size limit
                     let system_msgs: Vec<Message> = current_messages.iter()
                         .filter(|m| matches!(m.role, Role::System))
@@ -246,7 +247,7 @@ impl ClaWasm {
                     // Build trimmed list from most recent, respecting size limit
                     let mut recent_msgs: Vec<Message> = Vec::new();
                     let mut current_size = 0;
-                    let max_size = 50000; // 50KB limit for messages (bytes)
+                    let max_size = 30000; // 30KB limit for messages (bytes)
                     
                     for msg in current_messages.iter().rev() {
                         if matches!(msg.role, Role::System) {
