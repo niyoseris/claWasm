@@ -165,6 +165,29 @@ impl ClaWasm {
         
         let future = async move {
             let mut current_messages = messages;
+            
+            // Trim initial messages if too large
+            let total_bytes: usize = current_messages.iter()
+                .map(|m| m.content.len())
+                .sum();
+            if current_messages.len() > 10 || total_bytes > 20000 {
+                let system_msgs: Vec<Message> = current_messages.iter()
+                    .filter(|m| matches!(m.role, Role::System))
+                    .cloned()
+                    .collect();
+                let mut recent_msgs: Vec<Message> = Vec::new();
+                let mut current_size = 0;
+                for msg in current_messages.iter().rev() {
+                    if matches!(msg.role, Role::System) { continue; }
+                    let msg_size = msg.content.len();
+                    if current_size + msg_size > 15000 { break; }
+                    current_size += msg_size;
+                    recent_msgs.push(msg.clone());
+                }
+                recent_msgs.reverse();
+                current_messages = [system_msgs, recent_msgs].concat();
+            }
+            
             let mut response = provider.chat(&current_messages, &config).await?;
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             
@@ -236,8 +259,8 @@ impl ClaWasm {
                     .map(|m| m.content.len())
                     .sum();
                 
-                // More aggressive limit - prevent 400 errors from Ollama
-                if current_messages.len() > 15 || total_bytes > 40000 {
+                // Very aggressive limit - Ollama has strict limits
+                if current_messages.len() > 10 || total_bytes > 20000 {
                     // Keep system message and trim to fit size limit
                     let system_msgs: Vec<Message> = current_messages.iter()
                         .filter(|m| matches!(m.role, Role::System))
@@ -247,7 +270,7 @@ impl ClaWasm {
                     // Build trimmed list from most recent, respecting size limit
                     let mut recent_msgs: Vec<Message> = Vec::new();
                     let mut current_size = 0;
-                    let max_size = 30000; // 30KB limit for messages (bytes)
+                    let max_size = 15000; // 15KB limit for messages (bytes)
                     
                     for msg in current_messages.iter().rev() {
                         if matches!(msg.role, Role::System) {
