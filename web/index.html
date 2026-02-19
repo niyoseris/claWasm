@@ -857,12 +857,19 @@
             
             const displayTime = time || new Date().toLocaleTimeString();
             
+            // Process content to make file_id clickable
+            let processedContent = escapeHtml(content);
+            processedContent = processedContent.replace(
+                /\[📥 PDF'i tıkla ve indir\]\(file_id: (pdf_\d+)\)/g,
+                '<a href="#" onclick="downloadPdf(\'$1\'); return false;" style="color: #2563eb; text-decoration: underline; cursor: pointer;">📥 PDF\'i tıkla ve indir</a> (ID: $1)'
+            );
+            
             message.innerHTML = `
                 <div class="message-header">
                     <span class="message-role ${role}">${role}</span>
                     <span>${displayTime}</span>
                 </div>
-                <div class="message-content">${escapeHtml(content)}</div>
+                <div class="message-content">${processedContent}</div>
             `;
             
             container.appendChild(message);
