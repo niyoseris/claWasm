@@ -1167,9 +1167,10 @@
                 const { width, height } = page.getSize();
                 const margin = 50;
                 let y = height - margin;
+                let currentPage = page; // Track current page for drawing
                 
                 // Title
-                page.drawText(title, {
+                currentPage.drawText(title, {
                     x: margin,
                     y: y,
                     size: 24,
@@ -1179,7 +1180,7 @@
                 y -= 30;
                 
                 // Separator
-                page.drawText('='.repeat(60), {
+                currentPage.drawText('='.repeat(60), {
                     x: margin,
                     y: y,
                     size: 10,
@@ -1222,10 +1223,10 @@
                         if (width_test > maxWidth && currentLine) {
                             if (y < margin + 30) {
                                 // New page
-                                const newPage = pdfDoc.addPage([595, 842]);
+                                currentPage = pdfDoc.addPage([595, 842]);
                                 y = height - margin;
                             }
-                            page.drawText(currentLine, {
+                            currentPage.drawText(currentLine, {
                                 x: margin,
                                 y: y,
                                 size: fontSize,
@@ -1240,10 +1241,10 @@
                     
                     if (currentLine) {
                         if (y < margin + 30) {
-                            const newPage = pdfDoc.addPage([595, 842]);
+                            currentPage = pdfDoc.addPage([595, 842]);
                             y = height - margin;
                         }
-                        page.drawText(currentLine, {
+                        currentPage.drawText(currentLine, {
                             x: margin,
                             y: y,
                             size: fontSize,
