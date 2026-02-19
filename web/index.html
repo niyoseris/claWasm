@@ -1131,7 +1131,11 @@
         // PDF download function
         window.downloadPdf = async function(fileId) {
             try {
-                const result = await claWasm.call_tool("download_file", { file_id: fileId });
+                if (!clawasm) {
+                    addMessage("assistant", "❌ claWasm not initialized");
+                    return;
+                }
+                const result = await clawasm.call_tool("download_file", { file_id: fileId });
                 addMessage("assistant", result || "✅ Download completed!");
             } catch (e) {
                 const errMsg = e.message || e.toString() || "Unknown error";
